@@ -1,8 +1,10 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
 import {
+    IconArrowLeft,
     IconLoader2,
     IconMoon,
     IconPaperclip,
@@ -19,6 +21,7 @@ import {
     DEFAULT_CHAT_MODEL_ID,
     type ChatModelId,
 } from "@/lib/chat-models"
+import { SessionAccountMenu } from "@/components/user-account-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -246,15 +249,29 @@ export const Agents = () => {
             </aside>
 
             <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-                    <div className="flex min-w-0 flex-col">
-                        <span className="truncate font-heading text-sm">
-                            {firstUserSnippet ?? "New conversation"}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                            AI Gateway
-                        </span>
+                <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="shrink-0"
+                            asChild
+                        >
+                            <Link href="/" aria-label="Back to home">
+                                <IconArrowLeft />
+                            </Link>
+                        </Button>
+                        <div className="flex min-w-0 flex-col">
+                            <span className="truncate font-heading text-sm">
+                                {firstUserSnippet ?? "New conversation"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                                AI Gateway
+                            </span>
+                        </div>
                     </div>
+                    <SessionAccountMenu />
                 </header>
 
                 <ScrollArea className="min-h-0 flex-1">
