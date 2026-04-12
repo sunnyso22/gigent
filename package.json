@@ -12,6 +12,7 @@
         "db:push": "drizzle-kit push"
     },
     "dependencies": {
+        "@ai-sdk/gateway": "^3.0.95",
         "@ai-sdk/react": "^3.0.158",
         "@tabler/icons-react": "^3.41.1",
         "ai": "^6.0.156",

@@ -3,7 +3,7 @@
 import { IconBrandGithub } from "@tabler/icons-react"
 import { useState } from "react"
 
-import { SiteHeader } from "@/components/site-header"
+import { SiteHeader } from "@/components/layout/site-header"
 import { Button } from "@/components/ui/button"
 import {
     Card,
@@ -12,7 +12,7 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 
 const Page = () => {
     const [error, setError] = useState<string | null>(null)

@@ -1,6 +1,6 @@
 import Link from "next/link"
 
-import { SiteHeader } from "@/components/site-header"
+import { SiteHeader } from "@/components/layout/site-header"
 import { Button } from "@/components/ui/button"
 
 const Page = () => {
@@ -14,8 +14,8 @@ const Page = () => {
                         Build and chat with AI agents
                     </h1>
                     <p className="text-sm text-muted-foreground sm:text-base">
-                        Open the workspace to start a conversation, pick a
-                        model, and stream replies from your API route.
+                        Sign in, open the workspace, and add your Vercel AI
+                        Gateway API key in Settings when you are ready to chat.
                     </p>
                     <div className="flex justify-center">
                         <Button asChild>

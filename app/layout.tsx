@@ -1,7 +1,7 @@
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google"
 
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
+import { ThemeProvider } from "@/components/layout/theme-provider"
 import { cn } from "@/lib/utils"
 
 const geistMonoHeading = Geist_Mono({

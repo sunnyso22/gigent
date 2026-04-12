@@ -1,8 +1,9 @@
 "use client"
 
-import { IconLogout } from "@tabler/icons-react"
+import Link from "next/link"
+import { IconLogout, IconSettings } from "@tabler/icons-react"
 
-import { UserAvatarDisplay } from "@/components/session-avatar"
+import { UserAvatarDisplay } from "./session-avatar"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,7 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 
 type AccountUser = {
     name?: string | null
@@ -55,6 +56,15 @@ export const UserAccountMenu = ({ user }: UserAccountMenuProps) => {
                     </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                    <Link
+                        href="/settings"
+                        className="flex cursor-pointer items-center gap-2"
+                    >
+                        <IconSettings className="size-4" aria-hidden />
+                        Settings
+                    </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                     variant="destructive"
                     onSelect={() => {

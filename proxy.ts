@@ -1,7 +1,7 @@
 import { getSessionCookie } from "better-auth/cookies"
 import { type NextRequest, NextResponse } from "next/server"
 
-import { isAgentsRoute, isPublicPath } from "@/lib/auth/public-paths"
+import { isPublicPath, requiresSessionPath } from "@/lib/auth/public-paths"
 
 /**
  * Cookie-only check is optimistic (Better Auth docs). For sensitive server
@@ -16,7 +16,7 @@ export const proxy = (request: NextRequest) => {
         return NextResponse.next()
     }
 
-    if (isAgentsRoute(pathname)) {
+    if (requiresSessionPath(pathname)) {
         const sessionCookie = getSessionCookie(request)
         if (!sessionCookie) {
             const login = new URL("/login", request.url)

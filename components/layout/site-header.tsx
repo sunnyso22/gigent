@@ -2,9 +2,9 @@
 
 import Link from "next/link"
 
-import { UserAccountMenu } from "@/components/user-account-menu"
+import { UserAccountMenu } from "./user-account-menu"
 import { Button } from "@/components/ui/button"
-import { authClient } from "@/lib/auth-client"
+import { authClient } from "@/lib/auth/client"
 
 export const SiteHeader = () => {
     const { data: session, isPending } = authClient.useSession()
