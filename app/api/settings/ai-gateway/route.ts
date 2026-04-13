@@ -1,17 +1,16 @@
-import { getSession } from "@/lib/auth/session"
+import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import {
     deleteUserAiGatewayApiKey,
     getMaskedUserAiGatewayKey,
+    isValidAiGatewayApiKeyFormat,
     upsertUserAiGatewayApiKey,
 } from "@/lib/ai-gateway"
+import { getSession } from "@/lib/auth/session"
 
 export const GET = async () => {
     const session = await getSession()
     if (!session?.user?.id) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-        })
+        return unauthorizedJson()
     }
 
     const row = await getMaskedUserAiGatewayKey(session.user.id)
@@ -24,42 +23,33 @@ export const GET = async () => {
 export const POST = async (req: Request) => {
     const session = await getSession()
     if (!session?.user?.id) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-        })
+        return unauthorizedJson()
     }
 
     let body: { apiKey?: unknown }
     try {
         body = await req.json()
     } catch {
-        return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-        })
+        return jsonError(400, "Invalid JSON body")
     }
 
     const raw = body.apiKey
     if (typeof raw !== "string") {
-        return new Response(JSON.stringify({ error: "apiKey must be a string" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-        })
+        return jsonError(400, "apiKey must be a string")
     }
 
     const apiKey = raw.trim()
     if (apiKey.length === 0) {
-        return new Response(JSON.stringify({ error: "apiKey is required" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-        })
+        return jsonError(400, "apiKey is required")
+    }
+    if (!isValidAiGatewayApiKeyFormat(apiKey)) {
+        return jsonError(
+            400,
+            "apiKey must be a Vercel AI Gateway key (starts with vck_).",
+        )
     }
     if (apiKey.length > 2048) {
-        return new Response(JSON.stringify({ error: "apiKey is too long" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-        })
+        return jsonError(400, "apiKey is too long")
     }
 
     try {
@@ -70,10 +60,7 @@ export const POST = async (req: Request) => {
     } catch (e) {
         const message = e instanceof Error ? e.message : "Failed to save key"
         console.error("[api/settings/ai-gateway POST]", e)
-        return new Response(JSON.stringify({ error: message }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-        })
+        return jsonError(500, message)
     }
 
     const row = await getMaskedUserAiGatewayKey(session.user.id)
@@ -86,10 +73,7 @@ export const POST = async (req: Request) => {
 export const DELETE = async () => {
     const session = await getSession()
     if (!session?.user?.id) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-        })
+        return unauthorizedJson()
     }
 
     await deleteUserAiGatewayApiKey(session.user.id)

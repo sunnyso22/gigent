@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { IconLoader2, IconTrash } from "@tabler/icons-react"
+import { IconTrash } from "@tabler/icons-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,6 +13,11 @@ import {
     CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Loading, LoadingSpinner } from "@/components/ui/loading"
+import {
+    AI_GATEWAY_API_KEY_FORMAT_HINT,
+    isValidAiGatewayApiKeyFormat,
+} from "@/lib/ai-gateway/api-key-format"
 
 type StatusState =
     | { kind: "idle" }
@@ -88,6 +93,14 @@ export const AiGatewaySettingsForm = ({
     }, [mounted])
 
     const onSave = async () => {
+        const trimmed = apiKeyDraft.trim()
+        if (!isValidAiGatewayApiKeyFormat(trimmed)) {
+            setStatus({
+                kind: "error",
+                message: AI_GATEWAY_API_KEY_FORMAT_HINT,
+            })
+            return
+        }
         setSaving(true)
         setStatus({ kind: "idle" })
         try {
@@ -95,7 +108,7 @@ export const AiGatewaySettingsForm = ({
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ apiKey: apiKeyDraft }),
+                body: JSON.stringify({ apiKey: trimmed }),
             })
             const data = (await res.json()) as {
                 configured?: boolean
@@ -158,15 +171,6 @@ export const AiGatewaySettingsForm = ({
         }
     }
 
-    if (!mounted || loading) {
-        return (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <IconLoader2 className="size-4 animate-spin" aria-hidden />
-                Loading…
-            </div>
-        )
-    }
-
     return (
         <Card className="rounded-none border-border">
             <CardHeader className="space-y-1">
@@ -180,87 +184,107 @@ export const AiGatewaySettingsForm = ({
                 </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-                {showRequiredBanner ? (
-                    <p className="rounded-none border border-border bg-muted/40 px-2 py-1.5 text-xs text-foreground">
-                        Save a key below to send messages from the Agents
-                        workspace.
-                    </p>
-                ) : null}
-                {configured ? (
-                    <p className="text-xs text-muted-foreground">
-                        A key is saved (ends with{" "}
-                        <span className="font-mono text-foreground">
-                            …{keyLast4 ?? "????"}
-                        </span>
-                        ). Paste a new key to replace it.
-                    </p>
-                ) : (
-                    <p className="text-xs text-muted-foreground">
-                        No personal key saved yet.
-                    </p>
-                )}
-
-                {status.kind === "error" ? (
-                    <p className="rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
-                        {status.message}
-                    </p>
-                ) : null}
-                {status.kind === "success" ? (
-                    <p className="rounded-none border border-emerald-500/40 bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
-                        {status.message}
-                    </p>
-                ) : null}
-
-                <div className="flex flex-col gap-2">
-                    <label
-                        htmlFor="ai-gateway-api-key"
-                        className="text-xs font-medium text-foreground"
-                    >
-                        API key
-                    </label>
-                    <Input
-                        id="ai-gateway-api-key"
-                        name="ai-gateway-api-key"
-                        autoComplete="off"
-                        value={apiKeyDraft}
-                        onChange={(e) => setApiKeyDraft(e.target.value)}
-                        placeholder="vck_..."
-                        className="rounded-none font-mono text-xs"
+                {!mounted || loading ? (
+                    <Loading
+                        layout="section"
+                        label="Loading settings…"
+                        className="min-h-[10rem]"
                     />
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                    <Button
-                        type="button"
-                        size="sm"
-                        className="inline-flex gap-2 rounded-none"
-                        disabled={saving || apiKeyDraft.trim().length === 0}
-                        onClick={() => {
-                            void onSave()
-                        }}
-                    >
-                        {saving ? (
-                            <IconLoader2
-                                className="size-4 animate-spin"
-                                aria-hidden
-                            />
+                ) : (
+                    <>
+                        {showRequiredBanner ? (
+                            <p className="rounded-none border border-border bg-muted/40 px-2 py-1.5 text-xs text-foreground">
+                                Save a key below to send messages from the
+                                Agents workspace.
+                            </p>
                         ) : null}
-                        Save key
-                    </Button>
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="rounded-none"
-                        disabled={saving || !configured}
-                        onClick={() => {
-                            void onRemove()
-                        }}
-                    >
-                        <IconTrash className="size-4" aria-hidden />
-                        Remove key
-                    </Button>
-                </div>
+                        {configured ? (
+                            <p className="text-xs text-muted-foreground">
+                                A key is saved (ends with{" "}
+                                <span className="font-mono text-foreground">
+                                    …{keyLast4 ?? "????"}
+                                </span>
+                                ). Paste a new key to replace it.
+                            </p>
+                        ) : (
+                            <p className="text-xs text-muted-foreground">
+                                No personal key saved yet.
+                            </p>
+                        )}
+
+                        {status.kind === "error" ? (
+                            <p className="rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+                                {status.message}
+                            </p>
+                        ) : null}
+                        {status.kind === "success" ? (
+                            <p className="rounded-none border border-emerald-500/40 bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
+                                {status.message}
+                            </p>
+                        ) : null}
+
+                        <div className="flex flex-col gap-2">
+                            <label
+                                htmlFor="ai-gateway-api-key"
+                                className="text-xs font-medium text-foreground"
+                            >
+                                API key
+                            </label>
+                            <Input
+                                id="ai-gateway-api-key"
+                                name="ai-gateway-api-key"
+                                autoComplete="off"
+                                value={apiKeyDraft}
+                                onChange={(e) =>
+                                    setApiKeyDraft(e.target.value)
+                                }
+                                placeholder="vck_..."
+                                pattern="vck_[A-Za-z0-9_-]{20,}"
+                                title={AI_GATEWAY_API_KEY_FORMAT_HINT}
+                                className="rounded-none font-mono text-xs"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {AI_GATEWAY_API_KEY_FORMAT_HINT}
+                            </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                className="inline-flex gap-2 rounded-none"
+                                disabled={
+                                    saving ||
+                                    apiKeyDraft.trim().length === 0 ||
+                                    !isValidAiGatewayApiKeyFormat(
+                                        apiKeyDraft,
+                                    )
+                                }
+                                onClick={() => {
+                                    void onSave()
+                                }}
+                            >
+                                {saving ? (
+                                    <LoadingSpinner data-icon="inline-start" />
+                                ) : null}
+                                Save key
+                            </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="rounded-none"
+                                disabled={saving || !configured}
+                                onClick={() => {
+                                    void onRemove()
+                                }}
+                            >
+                                <IconTrash className="size-4" aria-hidden />
+                                Remove key
+                            </Button>
+                        </div>
+                    </>
+                )}
             </CardContent>
         </Card>
     )

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 
-import { Agents } from "@/components/agents"
+import { Agents } from "@/components/agents/agents-chat"
+import { hasUserAiGatewayApiKey } from "@/lib/ai-gateway"
 import { getSession } from "@/lib/auth/session"
 
 const Page = async () => {
@@ -8,7 +9,8 @@ const Page = async () => {
     if (!session?.user?.id) {
         redirect("/login?callbackUrl=/agents")
     }
-    return <Agents />
+    const hasApiKey = await hasUserAiGatewayApiKey(session.user.id)
+    return <Agents hasApiKey={hasApiKey} />
 }
 
 export default Page

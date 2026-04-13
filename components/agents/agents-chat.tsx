@@ -7,24 +7,28 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useChat } from "@ai-sdk/react"
 import {
     IconArrowLeft,
-    IconLoader2,
-    IconMoon,
     IconPaperclip,
     IconPlayerStop,
     IconSend,
     IconSparkles,
-    IconSun,
     IconX,
 } from "@tabler/icons-react"
-import { DefaultChatTransport, isTextUIPart, type UIMessage } from "ai"
-import { useTheme } from "next-themes"
-
+import {
+    DefaultChatTransport,
+    getToolName,
+    isTextUIPart,
+    isToolUIPart,
+    type UIMessage,
+} from "ai"
 import {
     CHAT_MODELS,
     DEFAULT_CHAT_MODEL_ID,
+    isChatModelId,
     type ChatModelId,
 } from "@/lib/chat/models"
 import { SessionAccountMenu } from "@/components/layout/user-account-menu"
+import { WorkspaceNav } from "@/components/layout/workspace-nav"
+import { Loading, LoadingSpinner } from "@/components/ui/loading"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,35 +47,57 @@ import { cn } from "@/lib/utils"
 /** Updated in an effect so `DefaultChatTransport` can read the latest id without stale closures. */
 let latestOutboundChatModelId: ChatModelId = DEFAULT_CHAT_MODEL_ID
 
-type ChatSession = {
+type AgentListItem = {
     id: string
-    title: string
-    hint: string
+    title: string | null
+    modelId: string | null
+    updatedAt: string
 }
-
-const sessions: ChatSession[] = [
-    {
-        id: "1",
-        title: "Product roadmap ideas",
-        hint: "2h ago",
-    },
-    {
-        id: "2",
-        title: "API error handling patterns",
-        hint: "Yesterday",
-    },
-    {
-        id: "3",
-        title: "Draft: onboarding email",
-        hint: "Mon",
-    },
-]
 
 const getMessageText = (message: UIMessage) =>
     message.parts
-        .filter(isTextUIPart)
-        .map((p) => p.text)
-        .join("")
+        .map((p) => {
+            if (isTextUIPart(p)) {
+                return p.text
+            }
+            if (isToolUIPart(p)) {
+                const name = getToolName(p)
+                if (p.state === "output-available") {
+                    const out = p.output
+                    const text =
+                        typeof out === "object" && out !== null
+                            ? JSON.stringify(out)
+                            : String(out ?? "")
+                    return `[${name}] ${text}`
+                }
+                if (p.state === "output-error") {
+                    return `[${name}] Error: ${p.errorText}`
+                }
+                return `[${name}] …`
+            }
+            return ""
+        })
+        .filter((s) => s.length > 0)
+        .join("\n")
+
+const formatSidebarHint = (iso: string) => {
+    const d = new Date(iso)
+    const t = d.getTime()
+    if (Number.isNaN(t)) {
+        return ""
+    }
+    const diff = Date.now() - t
+    if (diff < 60_000) {
+        return "Just now"
+    }
+    if (diff < 3_600_000) {
+        return `${Math.floor(diff / 60_000)}m ago`
+    }
+    if (diff < 86_400_000) {
+        return `${Math.floor(diff / 3_600_000)}h ago`
+    }
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
 
 const KeySavedBanner = () => {
     const searchParams = useSearchParams()
@@ -110,18 +136,23 @@ const KeySavedBanner = () => {
     )
 }
 
-export const Agents = () => {
-    const { resolvedTheme, setTheme } = useTheme()
-    const [mounted, setMounted] = React.useState(false)
-    const [draft, setDraft] = React.useState("")
-    const [chatId, setChatId] = React.useState(() => crypto.randomUUID())
-    const [selectedModelId, setSelectedModelId] = React.useState<ChatModelId>(
-        DEFAULT_CHAT_MODEL_ID
-    )
-    const [activeSidebarId, setActiveSidebarId] = React.useState(
-        sessions[0]?.id ?? ""
-    )
-
+const AgentsChatCore = ({
+    chatId,
+    initialMessages,
+    selectedModelId,
+    setSelectedModelId,
+    onPersisted,
+    conversationLoading,
+    hasApiKey,
+}: {
+    chatId: string
+    initialMessages: UIMessage[]
+    selectedModelId: ChatModelId
+    setSelectedModelId: React.Dispatch<React.SetStateAction<ChatModelId>>
+    onPersisted: () => void
+    conversationLoading: boolean
+    hasApiKey: boolean
+}) => {
     const transport = React.useMemo(
         () =>
             new DefaultChatTransport({
@@ -148,25 +179,37 @@ export const Agents = () => {
 
     const { messages, sendMessage, status, stop, error, clearError } = useChat({
         id: chatId,
+        messages: initialMessages,
         transport,
     })
 
-    const busy = status === "submitted" || status === "streaming"
+    const [draft, setDraft] = React.useState("")
+    const [noKeyMessage, setNoKeyMessage] = React.useState<string | null>(null)
+
+    const busy =
+        conversationLoading || status === "submitted" || status === "streaming"
+
+    React.useEffect(() => {
+        if (hasApiKey) {
+            setNoKeyMessage(null)
+        }
+    }, [hasApiKey])
 
     const onSend = async () => {
         const text = draft.trim()
         if (!text || busy) {
             return
         }
+        if (!hasApiKey) {
+            setNoKeyMessage(
+                "Add your Vercel AI Gateway API key in Settings before sending messages."
+            )
+            return
+        }
+        setNoKeyMessage(null)
         clearError()
         setDraft("")
         await sendMessage({ text })
-    }
-
-    const onNewChat = () => {
-        setChatId(crypto.randomUUID())
-        setActiveSidebarId("new")
-        clearError()
     }
 
     const firstUserSnippet = React.useMemo(() => {
@@ -185,110 +228,72 @@ export const Agents = () => {
         latestOutboundChatModelId = selectedModelId
     }, [selectedModelId])
 
+    // Invalid without a real model: never persist agent metadata or messages unless a gateway key exists.
     React.useEffect(() => {
-        setMounted(true)
-    }, [])
+        if (!hasApiKey) {
+            return
+        }
+        if (conversationLoading) {
+            return
+        }
+        if (messages.length === 0) {
+            return
+        }
+        const title = firstUserSnippet ?? null
+        const t = setTimeout(() => {
+            void (async () => {
+                try {
+                    const res = await fetch(`/api/agents/${chatId}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            messages,
+                            title,
+                            modelId: selectedModelId,
+                        }),
+                    })
+                    if (res.ok) {
+                        onPersisted()
+                    }
+                } catch (e) {
+                    console.error("[agents-chat] persist", e)
+                }
+            })()
+        }, 700)
+        return () => clearTimeout(t)
+    }, [
+        hasApiKey,
+        conversationLoading,
+        messages,
+        chatId,
+        selectedModelId,
+        firstUserSnippet,
+        onPersisted,
+    ])
 
     return (
-        <div className="flex h-dvh min-h-0 w-full flex-col bg-background text-foreground md:flex-row">
-            <aside
-                className={cn(
-                    "flex max-h-[40vh] w-full shrink-0 flex-col border-b border-border bg-sidebar text-sidebar-foreground",
-                    "md:h-auto md:max-h-none md:w-64 md:min-w-64 md:border-r md:border-b-0"
-                )}
-            >
-                <div className="flex items-center gap-2 px-3 py-3">
-                    <div className="flex size-8 items-center justify-center rounded-none border border-sidebar-border bg-sidebar-accent">
-                        <IconSparkles className="text-sidebar-primary" />
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate font-heading text-sm text-sidebar-foreground">
-                            Agents
-                        </span>
-                        <span className="truncate text-[10px] text-muted-foreground">
-                            Workspace
-                        </span>
-                    </div>
-                </div>
-                <div className="flex flex-col gap-2 px-3 pb-2">
-                    <Input
-                        type="search"
-                        placeholder="Search Agents..."
-                        className="h-8 border-sidebar-border bg-sidebar-accent/60 px-2.5 text-xs"
-                        aria-label="Search agents"
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {conversationLoading ? (
+                <div
+                    className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 backdrop-blur-[2px]"
+                    role="status"
+                    aria-live="polite"
+                    aria-busy="true"
+                >
+                    <Loading
+                        layout="section"
+                        label="Loading conversation…"
+                        className="text-foreground"
                     />
-                    <Button
-                        type="button"
-                        variant="default"
-                        size="lg"
-                        className="h-10 w-full justify-center bg-sidebar-primary text-base font-bold text-sidebar-primary-foreground hover:bg-sidebar-primary/90"
-                        onClick={onNewChat}
-                    >
-                        New Agent
-                    </Button>
                 </div>
-                <Separator className="bg-sidebar-border" />
-                <ScrollArea className="min-h-0 flex-1 px-2 py-2">
-                    <div className="flex flex-col gap-1">
-                        {sessions.map((s) => (
-                            <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => setActiveSidebarId(s.id)}
-                                className={cn(
-                                    "flex w-full flex-col gap-0.5 rounded-none border border-transparent px-2 py-2 text-left text-xs transition-colors",
-                                    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                                    activeSidebarId === s.id &&
-                                        "border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground"
-                                )}
-                            >
-                                <span className="truncate font-medium">
-                                    {s.title}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                    {s.hint}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                </ScrollArea>
-                <Separator className="bg-sidebar-border" />
-                <div className="flex items-center gap-2 px-3 py-3">
-                    <Avatar size="sm">
-                        <AvatarFallback className="bg-sidebar-accent text-[10px]">
-                            You
-                        </AvatarFallback>
-                    </Avatar>
-                    <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-xs">Account</span>
-                        <span className="truncate text-[10px] text-muted-foreground">
-                            Pro plan
-                        </span>
-                    </div>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-sidebar-foreground"
-                        onClick={() =>
-                            setTheme(
-                                resolvedTheme === "dark" ? "light" : "dark"
-                            )
-                        }
-                        aria-label="Toggle theme"
-                    >
-                        {!mounted ? (
-                            <IconMoon />
-                        ) : resolvedTheme === "dark" ? (
-                            <IconSun />
-                        ) : (
-                            <IconMoon />
-                        )}
-                    </Button>
-                </div>
-            </aside>
-
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            ) : null}
+            <main
+                className={cn(
+                    "flex min-h-0 min-w-0 flex-1 flex-col",
+                    conversationLoading && "pointer-events-none opacity-40"
+                )}
+                aria-hidden={conversationLoading}
+            >
                 <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                         <Button
@@ -311,7 +316,10 @@ export const Agents = () => {
                             </span>
                         </div>
                     </div>
-                    <SessionAccountMenu />
+                    <div className="flex shrink-0 items-center gap-2">
+                        <WorkspaceNav active="agents" />
+                        <SessionAccountMenu />
+                    </div>
                 </header>
 
                 <Suspense fallback={null}>
@@ -327,18 +335,17 @@ export const Agents = () => {
                                 </div>
                                 <div className="flex flex-col gap-1">
                                     <p className="font-heading text-sm">
-                                        Start a conversation
+                                        Start your agent
                                     </p>
                                     <p className="max-w-sm text-xs text-muted-foreground">
-                                        Add your gateway API key in{" "}
+                                        Add your API key in{" "}
                                         <Link
                                             href="/settings"
                                             className="text-foreground underline underline-offset-2"
                                         >
                                             Settings
                                         </Link>{" "}
-                                        to send messages. Until then, you can
-                                        explore the workspace here.
+                                        to get started.
                                     </p>
                                 </div>
                             </div>
@@ -395,11 +402,12 @@ export const Agents = () => {
 
                 <footer className="shrink-0 border-t border-border bg-background/80 px-4 py-3 backdrop-blur">
                     <div className="mx-auto w-full max-w-3xl">
-                        {error ? (
+                        {error || noKeyMessage ? (
                             <div className="mb-2 rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
-                                <p>{error.message}</p>
-                                {error.message.includes("Vercel AI Gateway") ||
-                                error.message.includes("/settings") ? (
+                                <p>{error?.message ?? noKeyMessage}</p>
+                                {error?.message.includes("Vercel AI Gateway") ||
+                                error?.message.includes("/settings") ||
+                                noKeyMessage ? (
                                     <p className="mt-1.5">
                                         <Link
                                             href="/settings?needsKey=1"
@@ -414,14 +422,19 @@ export const Agents = () => {
                         <div className="flex flex-col gap-0 rounded-none border border-border bg-card p-2 shadow-sm">
                             <Textarea
                                 value={draft}
-                                onChange={(e) => setDraft(e.target.value)}
+                                onChange={(e) => {
+                                    setDraft(e.target.value)
+                                    if (noKeyMessage) {
+                                        setNoKeyMessage(null)
+                                    }
+                                }}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter" && !e.shiftKey) {
                                         e.preventDefault()
                                         void onSend()
                                     }
                                 }}
-                                placeholder="Message…"
+                                placeholder="Create a job, search for jobs, or place a bid…"
                                 className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-2 py-2 text-xs shadow-none focus-visible:ring-0"
                                 aria-label="Message input"
                                 disabled={busy}
@@ -499,10 +512,7 @@ export const Agents = () => {
                                 >
                                     {busy ? (
                                         <>
-                                            <IconLoader2
-                                                data-icon="inline-start"
-                                                className="animate-spin"
-                                            />
+                                            <LoadingSpinner data-icon="inline-start" />
                                             Thinking
                                         </>
                                     ) : (
@@ -520,6 +530,197 @@ export const Agents = () => {
                     </div>
                 </footer>
             </main>
+        </div>
+    )
+}
+
+type AgentsProps = {
+    hasApiKey: boolean
+}
+
+export const Agents = ({ hasApiKey }: AgentsProps) => {
+    const [chatSession, setChatSession] = React.useState(() => ({
+        id: crypto.randomUUID(),
+        initialMessages: [] as UIMessage[],
+    }))
+    const [agents, setAgents] = React.useState<AgentListItem[]>([])
+    const [searchQuery, setSearchQuery] = React.useState("")
+    const [selectedModelId, setSelectedModelId] = React.useState<ChatModelId>(
+        DEFAULT_CHAT_MODEL_ID
+    )
+    const [conversationLoading, setConversationLoading] = React.useState(false)
+    const loadConversationAbortRef = React.useRef<AbortController | null>(null)
+
+    const refreshAgents = React.useCallback(async () => {
+        const res = await fetch("/api/agents")
+        if (!res.ok) {
+            return
+        }
+        const data = (await res.json()) as { agents: AgentListItem[] }
+        setAgents(data.agents)
+    }, [])
+
+    React.useEffect(() => {
+        void refreshAgents()
+    }, [refreshAgents])
+
+    const onAgentsPersisted = React.useCallback(() => {
+        void refreshAgents()
+    }, [refreshAgents])
+
+    const openAgent = async (agentId: string) => {
+        if (agentId === chatSession.id) {
+            return
+        }
+        loadConversationAbortRef.current?.abort()
+        const ac = new AbortController()
+        loadConversationAbortRef.current = ac
+        setConversationLoading(true)
+        try {
+            const res = await fetch(`/api/agents/${agentId}`, {
+                signal: ac.signal,
+            })
+            if (!res.ok) {
+                return
+            }
+            const data = (await res.json()) as {
+                agent: { modelId: string | null }
+                messages: UIMessage[]
+            }
+            if (ac.signal.aborted) {
+                return
+            }
+            setChatSession({
+                id: agentId,
+                initialMessages: data.messages ?? [],
+            })
+            if (data.agent?.modelId && isChatModelId(data.agent.modelId)) {
+                setSelectedModelId(data.agent.modelId)
+            }
+        } catch (e) {
+            if (e instanceof DOMException && e.name === "AbortError") {
+                return
+            }
+            console.error("[agents] openAgent", e)
+        } finally {
+            if (loadConversationAbortRef.current === ac) {
+                setConversationLoading(false)
+                loadConversationAbortRef.current = null
+            }
+        }
+    }
+
+    const onNewChat = () => {
+        loadConversationAbortRef.current?.abort()
+        loadConversationAbortRef.current = null
+        setConversationLoading(false)
+        setChatSession({
+            id: crypto.randomUUID(),
+            initialMessages: [],
+        })
+        setSelectedModelId(DEFAULT_CHAT_MODEL_ID)
+    }
+
+    const filteredAgents = React.useMemo(() => {
+        const q = searchQuery.trim().toLowerCase()
+        if (!q) {
+            return agents
+        }
+        return agents.filter(
+            (a) =>
+                (a.title ?? "").toLowerCase().includes(q) ||
+                a.id.toLowerCase().includes(q)
+        )
+    }, [agents, searchQuery])
+
+    return (
+        <div className="flex h-dvh min-h-0 w-full flex-col bg-background text-foreground md:flex-row">
+            <aside
+                className={cn(
+                    "flex max-h-[40vh] w-full shrink-0 flex-col border-b border-border bg-sidebar text-sidebar-foreground",
+                    "md:h-auto md:max-h-none md:w-64 md:min-w-64 md:border-r md:border-b-0"
+                )}
+            >
+                <div className="flex items-center gap-2 px-3 py-3">
+                    <div className="flex size-8 items-center justify-center rounded-none border border-sidebar-border bg-sidebar-accent">
+                        <IconSparkles className="text-sidebar-primary" />
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate font-heading text-sm text-sidebar-foreground">
+                            Agents
+                        </span>
+                        <span className="truncate text-[10px] text-muted-foreground">
+                            Workspace
+                        </span>
+                    </div>
+                </div>
+                <div className="flex flex-col gap-2 px-3 pb-2">
+                    <Input
+                        type="search"
+                        placeholder="Search Agents..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="h-8 border-sidebar-border bg-sidebar-accent/60 px-2.5 text-xs"
+                        aria-label="Search agents"
+                    />
+                    <Button
+                        type="button"
+                        variant="default"
+                        size="lg"
+                        className="h-10 w-full justify-center bg-sidebar-primary text-base font-bold text-sidebar-primary-foreground hover:bg-sidebar-primary/90"
+                        onClick={onNewChat}
+                        disabled={conversationLoading}
+                    >
+                        New Agent
+                    </Button>
+                </div>
+                <Separator className="bg-sidebar-border" />
+                <ScrollArea className="min-h-0 flex-1 px-2 py-2">
+                    {filteredAgents.length === 0 ? (
+                        <p className="px-2 py-6 text-center text-[10px] leading-relaxed text-muted-foreground">
+                            {agents.length === 0
+                                ? "No saved agents yet. Send a message below to create one, or tap New Agent for a fresh thread."
+                                : "No matches. Try a different search."}
+                        </p>
+                    ) : (
+                        <div className="flex flex-col gap-1">
+                            {filteredAgents.map((a) => (
+                                <button
+                                    key={a.id}
+                                    type="button"
+                                    onClick={() => void openAgent(a.id)}
+                                    disabled={conversationLoading}
+                                    className={cn(
+                                        "flex w-full flex-col gap-0.5 rounded-none border border-transparent px-2 py-2 text-left text-xs transition-colors",
+                                        "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                                        "disabled:cursor-not-allowed disabled:opacity-50",
+                                        chatSession.id === a.id &&
+                                            "border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground"
+                                    )}
+                                >
+                                    <span className="truncate font-medium">
+                                        {a.title?.trim() || "New conversation"}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                        {formatSidebarHint(a.updatedAt)}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </ScrollArea>
+            </aside>
+
+            <AgentsChatCore
+                key={chatSession.id}
+                chatId={chatSession.id}
+                initialMessages={chatSession.initialMessages}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                onPersisted={onAgentsPersisted}
+                conversationLoading={conversationLoading}
+                hasApiKey={hasApiKey}
+            />
         </div>
     )
 }

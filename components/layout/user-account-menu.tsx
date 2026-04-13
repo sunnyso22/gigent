@@ -1,7 +1,10 @@
 "use client"
 
+import * as React from "react"
 import Link from "next/link"
-import { IconLogout, IconSettings } from "@tabler/icons-react"
+import { usePathname } from "next/navigation"
+import { IconLogout, IconMoon, IconSettings, IconSun } from "@tabler/icons-react"
+import { useTheme } from "next-themes"
 
 import { UserAvatarDisplay } from "./session-avatar"
 import {
@@ -12,6 +15,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { requiresSessionPath } from "@/lib/auth/public-paths"
 import { authClient } from "@/lib/auth/client"
 
 type AccountUser = {
@@ -24,7 +28,53 @@ type UserAccountMenuProps = {
     user: AccountUser
 }
 
+const ThemeToggleMenuItem = () => {
+    const { resolvedTheme, setTheme } = useTheme()
+    const [mounted, setMounted] = React.useState(false)
+
+    React.useEffect(() => {
+        setMounted(true)
+    }, [])
+
+    return (
+        <DropdownMenuItem
+            className="flex cursor-pointer items-center gap-2"
+            onSelect={() => {
+                setTheme(resolvedTheme === "dark" ? "light" : "dark")
+            }}
+        >
+            {!mounted ? (
+                <>
+                    <IconSun className="size-4 opacity-60" aria-hidden />
+                    Theme
+                </>
+            ) : resolvedTheme === "dark" ? (
+                <>
+                    <IconSun className="size-4" aria-hidden />
+                    Light mode
+                </>
+            ) : (
+                <>
+                    <IconMoon className="size-4" aria-hidden />
+                    Dark mode
+                </>
+            )}
+        </DropdownMenuItem>
+    )
+}
+
 export const UserAccountMenu = ({ user }: UserAccountMenuProps) => {
+    const pathname = usePathname()
+
+    const signOutAndLeaveProtectedRoute = async () => {
+        await authClient.signOut()
+        if (pathname && requiresSessionPath(pathname)) {
+            const login = new URL("/login", window.location.origin)
+            login.searchParams.set("callbackUrl", pathname)
+            window.location.assign(login.toString())
+        }
+    }
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -65,10 +115,11 @@ export const UserAccountMenu = ({ user }: UserAccountMenuProps) => {
                         Settings
                     </Link>
                 </DropdownMenuItem>
+                <ThemeToggleMenuItem />
                 <DropdownMenuItem
                     variant="destructive"
                     onSelect={() => {
-                        void authClient.signOut()
+                        void signOutAndLeaveProtectedRoute()
                     }}
                 >
                     <IconLogout className="size-4" aria-hidden />

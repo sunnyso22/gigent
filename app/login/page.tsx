@@ -1,26 +1,18 @@
 "use client"
 
-import { IconBrandGithub } from "@tabler/icons-react"
+import { IconBrandGithub, IconBrandGoogle } from "@tabler/icons-react"
 import { useState } from "react"
 
 import { SiteHeader } from "@/components/layout/site-header"
 import { Button } from "@/components/ui/button"
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { authClient } from "@/lib/auth/client"
 
 const Page = () => {
     const [error, setError] = useState<string | null>(null)
     const [pending, setPending] = useState(false)
 
-    const signInWithGitHub = async () => {
-        setError(null)
-        setPending(true)
+    const getCallbackUrl = () => {
         let callbackURL = "/"
         if (typeof window !== "undefined") {
             const next = new URLSearchParams(window.location.search).get(
@@ -30,14 +22,20 @@ const Page = () => {
                 callbackURL = next
             }
         }
+        return callbackURL
+    }
+
+    const signInWithSocial = async (provider: "github" | "google") => {
+        setError(null)
+        setPending(true)
         try {
             await authClient.signIn.social({
-                provider: "github",
-                callbackURL,
+                provider,
+                callbackURL: getCallbackUrl(),
             })
         } catch {
             setError(
-                "Could not start GitHub sign-in. Check your OAuth app and environment variables."
+                `Could not start ${provider === "google" ? "Google" : "GitHub"} sign-in. Check your OAuth app and environment variables.`
             )
             setPending(false)
         }
@@ -62,10 +60,20 @@ const Page = () => {
                             type="button"
                             disabled={pending}
                             className="w-full gap-2"
-                            onClick={signInWithGitHub}
+                            onClick={() => signInWithSocial("github")}
                         >
                             <IconBrandGithub className="size-4" aria-hidden />
                             {pending ? "Redirecting…" : "Sign in with GitHub"}
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            disabled={pending}
+                            className="w-full gap-2"
+                            onClick={() => signInWithSocial("google")}
+                        >
+                            <IconBrandGoogle className="size-4" aria-hidden />
+                            {pending ? "Redirecting…" : "Sign in with Google"}
                         </Button>
                     </CardContent>
                 </Card>

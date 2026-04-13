@@ -3,6 +3,8 @@ import { redirect } from "next/navigation"
 import { IconArrowLeft } from "@tabler/icons-react"
 
 import { AiGatewaySettingsForm } from "@/components/settings/ai-gateway-settings-form"
+import { SessionAccountMenu } from "@/components/layout/user-account-menu"
+import { WorkspaceNav } from "@/components/layout/workspace-nav"
 import { Button } from "@/components/ui/button"
 import { getSession } from "@/lib/auth/session"
 import { hasUserAiGatewayApiKey } from "@/lib/ai-gateway"
@@ -26,23 +28,29 @@ const Page = async ({ searchParams }: SettingsPageProps) => {
 
     return (
         <div className="flex min-h-screen flex-col bg-background">
-            <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0"
-                    asChild
-                >
-                    <Link href={backHref} aria-label={backLabel}>
-                        <IconArrowLeft />
-                    </Link>
-                </Button>
-                <div className="flex min-w-0 flex-col">
-                    <span className="font-heading text-sm">Settings</span>
-                    <span className="text-[10px] text-muted-foreground">
-                        Account
-                    </span>
+            <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0"
+                        asChild
+                    >
+                        <Link href={backHref} aria-label={backLabel}>
+                            <IconArrowLeft />
+                        </Link>
+                    </Button>
+                    <div className="flex min-w-0 flex-col">
+                        <span className="font-heading text-sm">Settings</span>
+                        <span className="text-[10px] text-muted-foreground">
+                            Account
+                        </span>
+                    </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                    <WorkspaceNav />
+                    <SessionAccountMenu />
                 </div>
             </header>
             <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 p-4 py-8">
