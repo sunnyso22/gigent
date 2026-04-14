@@ -3,7 +3,7 @@ import { z } from "zod"
 import {
     AGENT_JOB_STATUS_VALUES,
     type AgentJobStatus,
-} from "@/lib/marketplace/service"
+} from "@/lib/agent-jobs/service"
 
 export const rewardCurrencySchema = z.enum(["USDC", "ETH"])
 
@@ -15,8 +15,3 @@ export const singleJobStatusSchema = z.enum(
 )
 
 export const keywordModeSchema = z.enum(["any", "all"])
-
-export const aspectRatioStringSchema = z
-    .string()
-    .regex(/^\d+\s*:\s*\d+$/)
-    .transform((s) => s.replace(/\s/g, "") as `${number}:${number}`)

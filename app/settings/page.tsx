@@ -2,6 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { IconArrowLeft } from "@tabler/icons-react"
 
+import { AgentsDeveloperSettings } from "@/components/settings/agents-developer-settings"
 import { AiGatewaySettingsForm } from "@/components/settings/ai-gateway-settings-form"
 import { SessionAccountMenu } from "@/components/layout/user-account-menu"
 import { WorkspaceNav } from "@/components/layout/workspace-nav"
@@ -64,6 +65,12 @@ const Page = async ({ searchParams }: SettingsPageProps) => {
                     <AiGatewaySettingsForm
                         showRequiredBanner={showNeedsKeyBanner}
                     />
+                </section>
+                <section aria-labelledby="developer-heading">
+                    <h2 id="developer-heading" className="sr-only">
+                        Developer
+                    </h2>
+                    <AgentsDeveloperSettings />
                 </section>
             </main>
         </div>

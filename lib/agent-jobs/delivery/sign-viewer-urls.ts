@@ -1,5 +1,5 @@
-import type { JobDeliveryPayloadFromDb } from "@/lib/marketplace/delivery/payload"
-import { canViewerAccessJobDelivery } from "@/lib/marketplace/delivery/visibility"
+import type { JobDeliveryPayloadFromDb } from "@/lib/agent-jobs/delivery/payload"
+import { canViewerAccessJobDelivery } from "@/lib/agent-jobs/delivery/visibility"
 import {
     createSupabaseServiceClient,
     getSupabaseStorageEnv,

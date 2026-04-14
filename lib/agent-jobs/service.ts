@@ -18,6 +18,7 @@ import {
     parseJobDeliveryPayload,
     parseJobDeliveryPayloadFromDb,
 } from "./delivery/payload"
+import { canViewerAccessJobDelivery } from "./delivery/visibility"
 import type { AgentJobStatus } from "./job-status"
 
 const escapeIlikePattern = (s: string) =>
@@ -78,18 +79,24 @@ const tokenizeSearchQuery = (raw: string): string[] => {
         "that",
         "me",
         "my",
-        "job",
-        "jobs",
-        "marketplace",
-        "agent",
-        "agents",
+        // Keep "job(s)" / marketplace terms — users and the agent often search with them.
     ])
-    const parts = raw
+    const splitAlnum = raw
         .toLowerCase()
         .split(/[^a-z0-9]+/g)
         .map((t) => t.trim())
         .filter((t) => t.length >= 2 && !stop.has(t))
-    return [...new Set(parts)]
+    const primary = [...new Set(splitAlnum)]
+    if (primary.length > 0) {
+        return primary
+    }
+    /** If everything was stop words, fall back to whitespace words (still drops 1-char noise). */
+    const loose = raw
+        .toLowerCase()
+        .split(/\s+/)
+        .map((t) => t.replace(/[^a-z0-9._-]+/g, "").trim())
+        .filter((t) => t.length >= 2)
+    return [...new Set(loose)]
 }
 
 export {
@@ -689,6 +696,162 @@ export const confirmJobCompletion = async (input: {
         .where(eq(agentJob.id, input.jobId))
 
     return { ok: true as const }
+}
+
+export const cancelAgentJobAsPoster = async (input: {
+    userId: string
+    jobId: string
+}) => {
+    const [job] = await db
+        .select()
+        .from(agentJob)
+        .where(eq(agentJob.id, input.jobId))
+        .limit(1)
+
+    if (!job) {
+        return { ok: false as const, error: "Job not found" }
+    }
+    if (job.posterUserId !== input.userId) {
+        return { ok: false as const, error: "Only the poster can cancel this job" }
+    }
+    if (job.status !== "open") {
+        return {
+            ok: false as const,
+            error: "Only open jobs can be cancelled",
+        }
+    }
+
+    await db
+        .update(agentJob)
+        .set({ status: "cancelled" })
+        .where(eq(agentJob.id, input.jobId))
+
+    return { ok: true as const }
+}
+
+export const updateBidAmount = async (input: {
+    userId: string
+    jobId: string
+    bidId: string
+    amount: string
+}) => {
+    const [bid] = await db
+        .select()
+        .from(agentJobBid)
+        .where(
+            and(
+                eq(agentJobBid.id, input.bidId),
+                eq(agentJobBid.jobId, input.jobId)
+            )
+        )
+        .limit(1)
+
+    if (!bid) {
+        return { ok: false as const, error: "Bid not found for this job" }
+    }
+    if (bid.bidderUserId !== input.userId) {
+        return { ok: false as const, error: "Only the bidder can update this bid" }
+    }
+    if (bid.status !== "pending") {
+        return { ok: false as const, error: "Only pending bids can be updated" }
+    }
+
+    const [job] = await db
+        .select({ status: agentJob.status })
+        .from(agentJob)
+        .where(eq(agentJob.id, input.jobId))
+        .limit(1)
+
+    if (!job) {
+        return { ok: false as const, error: "Job not found" }
+    }
+    if (job.status !== "open") {
+        return {
+            ok: false as const,
+            error: "Cannot update a bid after the job is no longer open",
+        }
+    }
+
+    parsePositiveAmount(input.amount)
+
+    await db
+        .update(agentJobBid)
+        .set({ amount: input.amount.trim() })
+        .where(eq(agentJobBid.id, input.bidId))
+
+    return { ok: true as const }
+}
+
+export const getJobForViewer = async (input: {
+    viewerUserId: string
+    jobId: string
+}) => {
+    const job = await getAgentJobById(input.jobId)
+    if (!job) {
+        return { ok: false as const, error: "Job not found" as const }
+    }
+
+    const canSeeDelivery = canViewerAccessJobDelivery(
+        input.viewerUserId,
+        job.posterUserId,
+        job.assigneeUserId
+    )
+
+    if (!canSeeDelivery) {
+        return {
+            ok: true as const,
+            job: {
+                ...job,
+                deliveryPayload: null,
+                deliveredAt: null,
+            },
+        }
+    }
+
+    return { ok: true as const, job }
+}
+
+export type PlaceholderJobPayment = {
+    simulated: true
+    rewardAmount: string
+    rewardCurrency: string
+    note: string
+}
+
+export const completeJobWithPlaceholderPayment = async (input: {
+    userId: string
+    jobId: string
+}): Promise<
+    | { ok: true; payment: PlaceholderJobPayment }
+    | { ok: false; error: string }
+> => {
+    const done = await confirmJobCompletion(input)
+    if (!done.ok) {
+        return { ok: false, error: done.error }
+    }
+
+    const [row] = await db
+        .select({
+            rewardAmount: agentJob.rewardAmount,
+            rewardCurrency: agentJob.rewardCurrency,
+        })
+        .from(agentJob)
+        .where(eq(agentJob.id, input.jobId))
+        .limit(1)
+
+    if (!row) {
+        return { ok: false, error: "Job not found" }
+    }
+
+    return {
+        ok: true,
+        payment: {
+            simulated: true,
+            rewardAmount: row.rewardAmount,
+            rewardCurrency: row.rewardCurrency,
+            note: "Placeholder: no funds transferred.",
+        },
+    }
 }
 
 export const listMyPostedJobs = async (userId: string, limit = 30) => {

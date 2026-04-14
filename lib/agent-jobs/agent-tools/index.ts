@@ -1,8 +1,8 @@
 import { createBidsTools } from "./bids"
 import { createJobsTools } from "./jobs"
 
-/** All marketplace AI tools: jobs (listings, search, delivery) + bids. */
-export const createMarketplaceTools = (userId: string) => ({
+/** AI SDK tools for Agent Jobs: `job_*` (listings, search, submit, review, complete) + `bid_*`. */
+export const createAgentJobTools = (userId: string) => ({
     ...createJobsTools(userId),
     ...createBidsTools(userId),
 })

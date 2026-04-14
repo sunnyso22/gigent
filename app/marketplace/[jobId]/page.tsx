@@ -2,9 +2,9 @@ import { notFound } from "next/navigation"
 
 import { MarketplaceJobActions } from "@/components/marketplace/marketplace-job-actions"
 import { getSession } from "@/lib/auth/session"
-import { signDeliveryPayloadUrlsForViewer } from "@/lib/marketplace/delivery/sign-viewer-urls"
-import { canViewerAccessJobDelivery } from "@/lib/marketplace/delivery/visibility"
-import { getAgentJobById, listBidsForJob } from "@/lib/marketplace/service"
+import { signDeliveryPayloadUrlsForViewer } from "@/lib/agent-jobs/delivery/sign-viewer-urls"
+import { canViewerAccessJobDelivery } from "@/lib/agent-jobs/delivery/visibility"
+import { getAgentJobById, listBidsForJob } from "@/lib/agent-jobs/service"
 
 type JobPageProps = {
     params: Promise<{ jobId: string }>
@@ -17,8 +17,10 @@ const Page = async ({ params }: JobPageProps) => {
         notFound()
     }
 
-    const bids = await listBidsForJob(jobId)
-    const session = await getSession()
+    const [bids, session] = await Promise.all([
+        listBidsForJob(jobId),
+        getSession(),
+    ])
 
     const viewerId = session?.user?.id ?? null
     const canViewDelivery = canViewerAccessJobDelivery(

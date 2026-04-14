@@ -1,8 +1,8 @@
 import Link from "next/link"
 
 import { MarketplaceFilters } from "@/components/marketplace/marketplace-filters"
-import { parseAgentJobStatusFilter } from "@/lib/marketplace/job-status"
-import { searchAgentJobs } from "@/lib/marketplace/service"
+import { parseAgentJobStatusFilter } from "@/lib/agent-jobs/job-status"
+import { searchAgentJobs } from "@/lib/agent-jobs/service"
 
 type MarketplacePageProps = {
     searchParams: Promise<{ q?: string; status?: string }>

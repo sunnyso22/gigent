@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
-import { createAgentJob, searchAgentJobs } from "@/lib/marketplace/service"
+import { createAgentJob, searchAgentJobs } from "@/lib/agent-jobs/service"
 
 export const GET = async (req: Request) => {
     const { searchParams } = new URL(req.url)

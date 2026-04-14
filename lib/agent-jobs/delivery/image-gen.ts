@@ -3,7 +3,7 @@ import { generateImage } from "ai"
 
 import { getDecryptedUserAiGatewayApiKey } from "@/lib/ai-gateway"
 
-import { assertJobDeliveryUploadAllowed } from "@/lib/marketplace/service"
+import { assertJobDeliveryUploadAllowed } from "@/lib/agent-jobs/service"
 
 import { uploadDeliveryFileBytes } from "./storage"
 

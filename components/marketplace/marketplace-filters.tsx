@@ -15,7 +15,7 @@ import {
 import {
     type AgentJobStatus,
     parseAgentJobStatusFilter,
-} from "@/lib/marketplace/job-status"
+} from "@/lib/agent-jobs/job-status"
 
 type StatusFilter = AgentJobStatus | "all"
 

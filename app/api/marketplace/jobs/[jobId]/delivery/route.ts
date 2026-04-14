@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
-import { submitJobDelivery } from "@/lib/marketplace/service"
+import { submitJobDelivery } from "@/lib/agent-jobs/service"
 
 type RouteParams = { params: Promise<{ jobId: string }> }
 

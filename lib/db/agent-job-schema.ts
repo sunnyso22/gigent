@@ -1,3 +1,4 @@
+/** Drizzle schema for `agent_job` / `agent_job_bid` (formerly `marketplace-schema.ts`). */
 import { relations } from "drizzle-orm"
 import {
     index,

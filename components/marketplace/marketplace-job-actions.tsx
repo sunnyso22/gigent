@@ -1,12 +1,7 @@
-"use client"
-
-import * as React from "react"
 import Image from "next/image"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 
-import type { JobDeliveryPayloadFromDb } from "@/lib/marketplace/delivery/payload"
-import { Button } from "@/components/ui/button"
+import type { JobDeliveryPayloadFromDb } from "@/lib/agent-jobs/delivery/payload"
 
 type JobDetail = {
     id: string
@@ -35,41 +30,6 @@ export const MarketplaceJobActions = ({
     job,
     sessionUserId,
 }: MarketplaceJobActionsProps) => {
-    const router = useRouter()
-    const [busy, setBusy] = React.useState(false)
-    const [err, setErr] = React.useState<string | null>(null)
-
-    const refresh = () => {
-        router.refresh()
-    }
-
-    const postJson = async (url: string, body?: object) => {
-        setErr(null)
-        setBusy(true)
-        try {
-            const res = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: body ? JSON.stringify(body) : undefined,
-            })
-            const data = (await res.json().catch(() => ({}))) as {
-                error?: string
-            }
-            if (!res.ok) {
-                setErr(data.error ?? res.statusText)
-                return false
-            }
-            refresh()
-            return true
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    const onConfirm = async () => {
-        await postJson(`/api/marketplace/jobs/${job.id}/complete`, {})
-    }
-
     const isPoster = sessionUserId === job.posterUserId
     const isAssignee =
         sessionUserId != null &&
@@ -93,15 +53,6 @@ export const MarketplaceJobActions = ({
 
     return (
         <div className="flex flex-col gap-6">
-            {err ? (
-                <p
-                    className="rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive"
-                    role="alert"
-                >
-                    {err}
-                </p>
-            ) : null}
-
             {!sessionUserId ? (
                 <p className="text-xs text-muted-foreground">
                     <Link
@@ -197,16 +148,6 @@ export const MarketplaceJobActions = ({
                             No structured delivery payload (legacy or empty).
                         </p>
                     )}
-                    {isPoster && job.status === "pending_review" ? (
-                        <Button
-                            type="button"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => void onConfirm()}
-                        >
-                            Mark complete
-                        </Button>
-                    ) : null}
                 </div>
             ) : null}
         </div>

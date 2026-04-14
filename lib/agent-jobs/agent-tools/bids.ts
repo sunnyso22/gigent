@@ -7,13 +7,13 @@ import {
     listMyBids,
     placeBid,
     getBidStatusForUser,
+    updateBidAmount,
     withdrawBid,
-} from "@/lib/marketplace/service"
+} from "@/lib/agent-jobs/service"
 
 export const createBidsTools = (userId: string) => ({
-    marketplace_listBidsOnJob: tool({
-        description:
-            "List all bids on a job (useful for the poster to review offers).",
+    bid_list_for_job: tool({
+        description: "List all bids on a job (poster reviewing offers).",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const bids = await listBidsForJob(jobId)
@@ -30,14 +30,12 @@ export const createBidsTools = (userId: string) => ({
         },
     }),
 
-    marketplace_placeBid: tool({
+    bid_place: tool({
         description:
-            "Place a bid on an open job with your proposed amount (positive decimal string, same currency as the job). Each user can have at most one bid per job; withdraw first to change your offer.",
+            "Place a bid on an open job (positive decimal string, same currency as the job). One pending bid per job per user; use bid_update to change amount.",
         inputSchema: z.object({
             jobId: z.string().min(1),
-            amount: z.string().describe(
-                "Your bid as a decimal string (any positive amount you propose)"
-            ),
+            amount: z.string().describe("Bid amount as a decimal string"),
         }),
         execute: async (input) => {
             const result = await placeBid({ userId, ...input })
@@ -52,9 +50,26 @@ export const createBidsTools = (userId: string) => ({
         },
     }),
 
-    marketplace_withdrawBid: tool({
+    bid_update: tool({
         description:
-            "Withdraw your pending bid on an open job before it is accepted. You must be the bidder; only pending bids on jobs that are still open can be removed.",
+            "Update your pending bid amount on an open job. You must be the bidder and the job must still be open.",
+        inputSchema: z.object({
+            jobId: z.string().min(1),
+            bidId: z.string().min(1),
+            amount: z.string().describe("New bid amount as a decimal string"),
+        }),
+        execute: async (input) => {
+            const result = await updateBidAmount({ userId, ...input })
+            if (!result.ok) {
+                return { success: false as const, error: result.error }
+            }
+            return { success: true as const, message: "Bid updated." }
+        },
+    }),
+
+    bid_withdraw: tool({
+        description:
+            "Withdraw your pending bid on an open job before it is accepted.",
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
@@ -68,9 +83,9 @@ export const createBidsTools = (userId: string) => ({
         },
     }),
 
-    marketplace_acceptBid: tool({
+    bid_accept: tool({
         description:
-            "Accept one bid as the job poster. All other pending bids on that job are rejected automatically.",
+            "As poster: accept one bid. Job becomes assigned; other pending bids are rejected.",
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
@@ -84,7 +99,7 @@ export const createBidsTools = (userId: string) => ({
         },
     }),
 
-    marketplace_listMyBids: tool({
+    bid_list_mine: tool({
         description: "List bids you placed and related job status.",
         inputSchema: z.object({}),
         execute: async () => {
@@ -99,9 +114,9 @@ export const createBidsTools = (userId: string) => ({
         },
     }),
 
-    marketplace_myBidStatus: tool({
+    bid_status: tool({
         description:
-            "Check status of your bids; optionally filter by job id to see if your bid was accepted.",
+            "Check your bid status; optionally pass jobId to filter to one job.",
         inputSchema: z.object({
             jobId: z.string().optional(),
         }),
