@@ -6,10 +6,12 @@ import { usePathname } from "next/navigation"
 import { UserAccountMenu } from "./user-account-menu"
 import { Button } from "@/components/ui/button"
 import { authClient } from "@/lib/auth/client"
+import { useLinkedWalletAddress } from "@/lib/wallet/use-linked-wallet"
 
 export const SiteHeader = () => {
     const pathname = usePathname()
     const { data: session, isPending } = authClient.useSession()
+    const walletAddress = useLinkedWalletAddress()
 
     const agentsActive = pathname.startsWith("/agents")
     const marketplaceActive = pathname.startsWith("/marketplace")
@@ -69,6 +71,7 @@ export const SiteHeader = () => {
                                 email: session.user.email,
                                 image: session.user.image,
                             }}
+                            walletAddress={walletAddress}
                         />
                     ) : (
                         <Button size="sm" asChild>

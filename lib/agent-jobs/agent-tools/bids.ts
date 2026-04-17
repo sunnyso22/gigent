@@ -24,7 +24,8 @@ export const createBidsTools = (userId: string) => ({
                     bidderName: b.bidderName,
                     amount: `${b.amount} ${b.currency}`,
                     status: b.status,
-                    createdAt: b.createdAt?.toISOString?.() ?? String(b.createdAt),
+                    createdAt:
+                        b.createdAt?.toISOString?.() ?? String(b.createdAt),
                 })),
             }
         },
@@ -95,7 +96,10 @@ export const createBidsTools = (userId: string) => ({
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
-            return { success: true as const, message: "Bid accepted; job assigned." }
+            return {
+                success: true as const,
+                message: "Bid accepted; job assigned.",
+            }
         },
     }),
 
@@ -108,7 +112,8 @@ export const createBidsTools = (userId: string) => ({
                 success: true as const,
                 bids: rows.map((b) => ({
                     ...b,
-                    createdAt: b.createdAt?.toISOString?.() ?? String(b.createdAt),
+                    createdAt:
+                        b.createdAt?.toISOString?.() ?? String(b.createdAt),
                 })),
             }
         },

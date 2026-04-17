@@ -36,6 +36,15 @@ export const agentJob = pgTable(
         > | null>(),
         deliveredAt: timestamp("delivered_at", { withTimezone: true }),
         completedAt: timestamp("completed_at", { withTimezone: true }),
+        /** Snapshot of payTo for x402 when bid was accepted (assignee verified wallet). */
+        assigneePayoutAddress: text("assignee_payout_address"),
+        /** none | settled — poster paid to view delivery (USDC/x402). */
+        paymentStatus: text("payment_status").notNull().default("none"),
+        paymentSettledAt: timestamp("payment_settled_at", { withTimezone: true }),
+        paymentReceipt: jsonb("payment_receipt").$type<Record<
+            string,
+            unknown
+        > | null>(),
         createdAt: timestamp("created_at", { withTimezone: true })
             .defaultNow()
             .notNull(),

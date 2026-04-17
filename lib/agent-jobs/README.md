@@ -12,7 +12,7 @@ This section describes how **Posters**, **Bidders**, and their **AI agents** use
 
 | Role | Who | Goals |
 |------|-----|--------|
-| **Poster** | User who creates jobs | Post work, pick a bidder, review delivery, accept and settle (payment when implemented). |
+| **Poster** | User who creates jobs | Post work, pick a bidder, pay USDC (x402) to view delivery, then complete the job. |
 | **Bidder** | User who competes for jobs | Find open jobs, bid, and—if assigned—deliver the work. |
 | **Agent** | LLM + tools in the **Agents** chat | Executes the same actions on behalf of the signed-in user via structured tools (`job_*`, `bid_*`). |
 
@@ -25,7 +25,7 @@ Posters and bidders both drive their agents from the **Agents** page: they promp
 | `open` | Accepting bids; poster may edit or **cancel** (soft delete). |
 | `assigned` | A bid was accepted; one assignee works on delivery. |
 | `pending_review` | Assignee submitted delivery; poster should review. |
-| `completed` | Poster accepted delivery; job is done (placeholder settlement runs in the agent tool until real payments exist). |
+| `completed` | Poster accepted delivery after pay-to-view; USDC settlement happens at pay-to-view time (x402), not on `job_complete`. |
 | `cancelled` | Poster cancelled an eligible job (e.g. while still `open`); job is no longer active. |
 
 ```mermaid
@@ -33,6 +33,7 @@ stateDiagram-v2
   direction LR
   open --> assigned: bid_accept
   assigned --> pending_review: job_submit
+  pending_review --> pending_review: pay_to_view_usdc
   pending_review --> completed: job_complete
   open --> cancelled: job_cancel
 ```
@@ -58,14 +59,15 @@ The assignee uses a **single** tool, **`job_submit`**, which builds the delivery
 **Choose a bidder**
 
 1. List bids on the job (`bid_list_for_job`).
-2. Accept one bid (`bid_accept`) → job becomes **`assigned`**, other pending bids rejected.
+2. Accept one bid (`bid_accept`) → job becomes **`assigned`**, other pending bids rejected. The assignee must have linked a **Base Sepolia** wallet (`user_wallet`); their address is copied to **`assignee_payout_address`** on the job.
 
-**Review and settle**
+**Review and pay-to-view (USDC / x402)**
 
-1. When status is **`pending_review`**, load delivery for the user (`job_review`) — read-only; shows what the assignee submitted (aligned with Marketplace visibility rules).
-2. After the **human** confirms they accept the work, the agent calls **`job_complete`**: marks the job **`completed`** and returns **placeholder** payment metadata (real rails plug in here later). There is no separate `job_pay` tool.
+1. When status is **`pending_review`**, the poster does **not** see delivery until **`payment_status`** is **`settled`**. They use the Agents chat + **`job_pay_to_view`**; link a wallet in **Settings**, then the Agents page runs **`GET /api/marketplace/jobs/[jobId]/pay-to-view`** with [`@x402/fetch`](https://docs.x402.org/introduction).
+2. After payment, **`job_review`** and **`job_get`** include delivery for the poster (same rules as Marketplace APIs).
+3. The agent calls **`job_complete`** only after explicit user confirmation. **`confirmJobCompletion`** requires pay-to-view settled for posters.
 
-**Guardrail:** Prompts should instruct the model to call **`job_review`** before **`job_complete`**, and only **`job_complete`** after explicit user confirmation.
+**Guardrail:** Prompts should instruct the model: offer pay-to-view when `pending_review` and unpaid → **`job_pay_to_view`** → user pays in UI → **`job_review`** → **`job_complete`** only after confirmation.
 
 ### Bidder flows
 
@@ -96,8 +98,9 @@ Tools are exposed to the model as **`job_*`** and **`bid_*`** keys (no `marketpl
 | `job_list_mine` | List jobs you posted. |
 | `job_get` | Get one job with role-appropriate fields. |
 | `job_submit` | **Assignee:** deliver work (text/image path), upload to storage, set `pending_review`. |
-| `job_review` | **Poster (or assignee where allowed):** read job + delivery for chat. |
-| `job_complete` | **Poster:** `pending_review` → `completed` + placeholder settlement response. |
+| `job_review` | **Poster (or assignee where allowed):** read job + delivery; poster sees delivery only after pay-to-view settled. |
+| `job_pay_to_view` | **Poster:** returns unlock path + USDC amount (Base Sepolia x402) until settled. |
+| `job_complete` | **Poster:** `pending_review` → `completed` (requires prior pay-to-view settlement). |
 
 **Bids (`bid_*`)**
 
@@ -116,14 +119,16 @@ Tools are exposed to the model as **`job_*`** and **`bid_*`** keys (no `marketpl
 | Concern | Agents (chat) | Marketplace (browser) |
 |---------|----------------|------------------------|
 | Authentication | Session user; tools run as that user. | Same session; REST routes under `app/api/marketplace/`. |
-| Delivery visibility | `job_review` / tool results in chat. | `GET` job detail; delivery hidden per `canViewerAccessJobDelivery`. |
-| Complete + pay | **`job_complete`** (includes placeholder pay). | e.g. `POST .../complete` until UI is unified with the same service layer. |
+| Delivery visibility | `job_review` / tool results in chat. | `GET` job detail; poster delivery hidden until pay-to-view + `canViewerAccessJobDelivery`. |
+| Pay + complete | Link wallet in Settings; x402 pay from Agents; then **`job_complete`**. | `POST .../complete` uses same `confirmJobCompletion` (requires payment settled). |
 
 Keeping HTTP routes and tools calling the **same** service functions avoids drift between what agents and humans see.
 
-### Payments
+### Payments (x402)
 
-**`job_complete`** is defined to include settlement: today that means a **placeholder** result (e.g. simulated success and echo of reward). When real payments exist, implement them inside the same tool (or helpers it calls) **after** `confirmJobCompletion` succeeds, without changing the external tool name.
+- **Facilitator:** `HTTPFacilitatorClient` (default `https://x402.org/facilitator`, override with `X402_FACILITATOR_URL`).
+- **Pay-to-view route:** [`GET /api/marketplace/jobs/[jobId]/pay-to-view`](../../app/api/marketplace/jobs/[jobId]/pay-to-view/route.ts) — `withX402`, **exact** scheme, **Base Sepolia** (`eip155:84532`), price from **accepted USDC bid**, **`payTo`** = job `assignee_payout_address`.
+- **Wallet link:** [`POST /api/wallet/prepare`](../../app/api/wallet/prepare/route.ts) + [`POST /api/wallet/verify`](../../app/api/wallet/verify/route.ts) — message signing binds [`user_wallet`](../../lib/db/auth-schema.ts) for `eip155:84532`.
 
 ---
 
@@ -131,7 +136,7 @@ Keeping HTTP routes and tools calling the **same** service functions avoids drif
 
 | Path | Role |
 |------|------|
-| [`service.ts`](service.ts) | Core domain: create/update/cancel jobs, search, bids (place/update/withdraw/accept), **submit delivery**, `getAgentJobById`, `getJobForViewer`, `completeJobWithPlaceholderPayment`, upload guard (`assertJobDeliveryUploadAllowed`). |
+| [`service.ts`](service.ts) | Core domain: create/update/cancel jobs, search, bids (place/update/withdraw/accept), **submit delivery**, `getAgentJobById`, `getJobForViewer`, `markJobPaymentSettled`, `completeJobAsPoster`, upload guard (`assertJobDeliveryUploadAllowed`). |
 | [`job-status.ts`](job-status.ts) | Job lifecycle status values and filters for search. |
 | [`delivery/`](delivery/) | **Delivery** for the supported product surface: **text** blocks and **AI-generated images** (payload schema, Supabase upload, image generation). |
 | [`delivery/payload.ts`](delivery/payload.ts) | Zod schema for `delivery_payload` (`text` + `file` blocks), parse helpers for DB/API. |
@@ -139,7 +144,7 @@ Keeping HTTP routes and tools calling the **same** service functions avoids drif
 | [`delivery/storage.ts`](delivery/storage.ts) | `uploadDeliveryFileBytes` → Supabase (used by **`image-gen`** for raster delivery files). |
 | [`delivery/image-gen.ts`](delivery/image-gen.ts) | Raster **image** via AI Gateway `generateImage` + upload. |
 | [`agent-tools/index.ts`](agent-tools/index.ts) | **`createAgentJobTools(userId)`** — merges jobs + bids; re-exports **`createJobsTools`**, **`createBidsTools`**. |
-| [`agent-tools/jobs.ts`](agent-tools/jobs.ts) | **`job_*`** tools: listings, search, `job_submit` (text / image / text_and_image), `job_review`, `job_complete`. |
+| [`agent-tools/jobs.ts`](agent-tools/jobs.ts) | **`job_*`** tools: listings, search, `job_submit` (text / image / text_and_image), `job_review`, `job_pay_to_view`, `job_complete`. |
 | [`agent-tools/bids.ts`](agent-tools/bids.ts) | **`bid_*`** tools: place, update, withdraw, list, accept, status. |
 | [`agent-tools/schemas.ts`](agent-tools/schemas.ts) | Shared Zod helpers for job search/create (currency, status, keywords, aspect ratio). |
 
@@ -156,7 +161,7 @@ All tools run **as the logged-in user** (`userId`). Jobs and bids enforce poster
 
 1. Confirm assignment (`bid_status` / `job_get`).
 2. **`job_submit`** with `mode` **text**, **image**, or **text_and_image** (image modes use AI Gateway + Supabase upload internally).
-3. Poster reviews (`job_review` or Marketplace); poster calls **`job_complete`** when satisfied (placeholder settlement).
+3. Poster pays to view (`job_pay_to_view` + wallet UI), then reviews (`job_review` or Marketplace); poster calls **`job_complete`** when satisfied.
 
 ### Environment
 
@@ -169,3 +174,4 @@ All tools run **as the logged-in user** (`userId`). Jobs and bids enforce poster
 ## HTTP API (non-agent)
 
 - `POST /api/marketplace/jobs/[jobId]/delivery` — JSON body `{ deliveryPayload }` (same schema as `job_submit` / `submitJobDelivery`).
+- `GET /api/marketplace/jobs/[jobId]/pay-to-view` — x402 USDC pay-to-view for the poster (`withX402`); persists `payment_status` on success.

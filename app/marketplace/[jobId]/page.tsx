@@ -3,7 +3,10 @@ import { notFound } from "next/navigation"
 import { MarketplaceJobActions } from "@/components/marketplace/marketplace-job-actions"
 import { getSession } from "@/lib/auth/session"
 import { signDeliveryPayloadUrlsForViewer } from "@/lib/agent-jobs/delivery/sign-viewer-urls"
-import { canViewerAccessJobDelivery } from "@/lib/agent-jobs/delivery/visibility"
+import {
+    canViewerAccessJobDelivery,
+    shouldHideDeliveryFromPosterUntilPaid,
+} from "@/lib/agent-jobs/delivery/visibility"
 import { getAgentJobById, listBidsForJob } from "@/lib/agent-jobs/service"
 
 type JobPageProps = {
@@ -29,7 +32,19 @@ const Page = async ({ params }: JobPageProps) => {
         job.assigneeUserId
     )
 
-    const deliveryPayload = canViewDelivery
+    const hideUntilPosterPays =
+        viewerId != null &&
+        shouldHideDeliveryFromPosterUntilPaid({
+            viewerUserId: viewerId,
+            posterUserId: job.posterUserId,
+            status: job.status,
+            paymentStatus: job.paymentStatus,
+        })
+
+    const showDeliveryContent =
+        canViewDelivery && !hideUntilPosterPays
+
+    const deliveryPayload = showDeliveryContent
         ? await signDeliveryPayloadUrlsForViewer({
               jobId,
               deliveryPayload: job.deliveryPayload,
@@ -96,7 +111,7 @@ const Page = async ({ params }: JobPageProps) => {
                     assigneeName: job.assigneeName,
                     acceptedBidId: job.acceptedBidId,
                     deliveryPayload,
-                    deliveredAt: canViewDelivery ? job.deliveredAt : null,
+                    deliveredAt: showDeliveryContent ? job.deliveredAt : null,
                     completedAt: job.completedAt,
                 }}
                 sessionUserId={session?.user?.id ?? null}

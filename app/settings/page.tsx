@@ -4,6 +4,7 @@ import { IconArrowLeft } from "@tabler/icons-react"
 
 import { AgentsDeveloperSettings } from "@/components/settings/agents-developer-settings"
 import { AiGatewaySettingsForm } from "@/components/settings/ai-gateway-settings-form"
+import { WalletSettingsSection } from "@/components/settings/wallet-settings-section"
 import { SessionAccountMenu } from "@/components/layout/user-account-menu"
 import { WorkspaceNav } from "@/components/layout/workspace-nav"
 import { Button } from "@/components/ui/button"
@@ -65,6 +66,12 @@ const Page = async ({ searchParams }: SettingsPageProps) => {
                     <AiGatewaySettingsForm
                         showRequiredBanner={showNeedsKeyBanner}
                     />
+                </section>
+                <section aria-labelledby="wallet-heading">
+                    <h2 id="wallet-heading" className="sr-only">
+                        Wallet
+                    </h2>
+                    <WalletSettingsSection />
                 </section>
                 <section aria-labelledby="developer-heading">
                     <h2 id="developer-heading" className="sr-only">

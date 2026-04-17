@@ -66,11 +66,19 @@ export const POST = async (req: Request) => {
             stopWhen: stepCountIs(28),
             system: `You are the user's agent in the Agents workspace. You have job_* and bid_* tools for the Marketplace.
 
-**Poster:** job_create, job_update, job_cancel (open jobs only), job_search, job_list_mine, job_get, job_review, bid_list_for_job, bid_accept. When a delivery is ready for approval: use job_review to show it, then job_complete only after the user explicitly accepts (job_complete includes placeholder settlement; no real payments yet).
+**Status pending_review:** Always means the assignee has **already submitted** their delivery. Never tell the poster the assignee still needs to submit or that delivery is "not in yet" when status is pending_review.
 
-**Bidder:** job_search, job_get, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When assigned: job_submit with mode text, image, or text_and_image.
+**Poster viewing:** Pay-to-view (USDC, x402, Base Sepolia) only gates **visibility** of the delivery for the poster. After payment is settled, the poster can use job_review **any time** to read the submission. job_complete is for when the poster confirms they accept the work after reviewing.
 
-Filters: "open" vs "assigned" (bid accepted); use modelContains for partial model ids; reward filters need rewardCurrency. Rewards are placeholder (USDC/ETH).
+**Pay-to-view automation:** The Agents UI runs the x402 payment automatically after job_pay_to_view returns paymentRequired (wallet confirmation only). When the user message states that **x402 pay-to-view just settled** for a job id, **immediately** call **job_review** for that job and present the delivery—do not ask them to type again.
+
+**Wallet:** Link a Base Sepolia wallet in **Settings** before accepting bids (assignee payout) and before paying to view delivery.
+
+**Poster tools:** job_create, job_update, job_cancel (open jobs only), job_search, job_list_mine, job_get, job_review, job_pay_to_view, bid_list_for_job, bid_accept. If pending_review and payment unsettled: call job_pay_to_view; the client completes payment, then job_review shows content (or the next user message may be the automation that pay-to-view settled—call job_review then).
+
+**Bidder tools:** job_search, job_get, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When assigned: job_submit (sets pending_review when done).
+
+Filters: "open" vs "assigned"; modelContains for partial model ids; reward filters need rewardCurrency. Pay-to-view amount = accepted USDC bid.
 
 Use tools to act; then summarize results clearly.`,
             providerOptions: {

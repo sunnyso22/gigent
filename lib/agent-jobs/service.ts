@@ -11,14 +11,18 @@ import {
 } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 
-import { agentJob, agentJobBid, user } from "@/lib/db/schema"
+import { agentJob, agentJobBid, user, userWallet } from "@/lib/db/schema"
 import { db } from "@/lib/db"
+import { X402_BASE_SEPOLIA_NETWORK } from "@/lib/wallet/constants"
 
 import {
     parseJobDeliveryPayload,
     parseJobDeliveryPayloadFromDb,
 } from "./delivery/payload"
-import { canViewerAccessJobDelivery } from "./delivery/visibility"
+import {
+    canViewerAccessJobDelivery,
+    shouldHideDeliveryFromPosterUntilPaid,
+} from "./delivery/visibility"
 import type { AgentJobStatus } from "./job-status"
 
 const escapeIlikePattern = (s: string) =>
@@ -367,6 +371,10 @@ export const getAgentJobById = async (jobId: string) => {
             deliveryPayload: agentJob.deliveryPayload,
             deliveredAt: agentJob.deliveredAt,
             completedAt: agentJob.completedAt,
+            assigneePayoutAddress: agentJob.assigneePayoutAddress,
+            paymentStatus: agentJob.paymentStatus,
+            paymentSettledAt: agentJob.paymentSettledAt,
+            paymentReceipt: agentJob.paymentReceipt,
             createdAt: agentJob.createdAt,
         })
         .from(agentJob)
@@ -559,6 +567,26 @@ export const acceptBid = async (input: {
             return { ok: false as const, error: "Bid is no longer pending" }
         }
 
+        const [walletRow] = await tx
+            .select({ address: userWallet.address })
+            .from(userWallet)
+            .where(
+                and(
+                    eq(userWallet.userId, bid.bidderUserId),
+                    eq(userWallet.chainId, X402_BASE_SEPOLIA_NETWORK)
+                )
+            )
+            .limit(1)
+
+        const assigneePayoutAddress = walletRow?.address ?? null
+        if (!assigneePayoutAddress) {
+            return {
+                ok: false as const,
+                error:
+                    "The bidder must link a Base Sepolia wallet in Settings before their bid can be accepted.",
+            }
+        }
+
         await tx
             .update(agentJobBid)
             .set({ status: "accepted" })
@@ -581,6 +609,7 @@ export const acceptBid = async (input: {
                 status: "assigned",
                 assigneeUserId: bid.bidderUserId,
                 acceptedBidId: input.bidId,
+                assigneePayoutAddress,
             })
             .where(eq(agentJob.id, input.jobId))
 
@@ -684,6 +713,12 @@ export const confirmJobCompletion = async (input: {
         return {
             ok: false as const,
             error: "Job is not awaiting your review",
+        }
+    }
+    if (job.paymentStatus !== "settled") {
+        return {
+            ok: false as const,
+            error: "Pay to view delivery (x402 USDC) before completing the job",
         }
     }
 
@@ -808,50 +843,112 @@ export const getJobForViewer = async (input: {
         }
     }
 
+    const hideForPayToView = shouldHideDeliveryFromPosterUntilPaid({
+        viewerUserId: input.viewerUserId,
+        posterUserId: job.posterUserId,
+        status: job.status,
+        paymentStatus: job.paymentStatus,
+    })
+
+    if (hideForPayToView) {
+        return {
+            ok: true as const,
+            job: {
+                ...job,
+                deliveryPayload: null,
+                deliveredAt: null,
+            },
+        }
+    }
+
     return { ok: true as const, job }
 }
 
-export type PlaceholderJobPayment = {
-    simulated: true
-    rewardAmount: string
-    rewardCurrency: string
-    note: string
-}
-
-export const completeJobWithPlaceholderPayment = async (input: {
+export const getPayToViewPreviewForPoster = async (input: {
     userId: string
     jobId: string
 }): Promise<
-    | { ok: true; payment: PlaceholderJobPayment }
+    | { ok: true; settled: true }
+    | {
+          ok: true
+          settled: false
+          paymentRequired: true
+          amount: string
+          currency: string
+          network: typeof X402_BASE_SEPOLIA_NETWORK
+          payPath: string
+      }
     | { ok: false; error: string }
 > => {
-    const done = await confirmJobCompletion(input)
-    if (!done.ok) {
-        return { ok: false, error: done.error }
+    const job = await getAgentJobById(input.jobId)
+    if (!job) {
+        return { ok: false, error: "Job not found" }
+    }
+    if (job.posterUserId !== input.userId) {
+        return { ok: false, error: "Only the poster can use pay-to-view" }
+    }
+    if (job.status !== "pending_review") {
+        return {
+            ok: false,
+            error: "Pay-to-view applies only while the job is pending review",
+        }
+    }
+    if (job.paymentStatus === "settled") {
+        return { ok: true, settled: true }
+    }
+    if (!job.acceptedBidId || job.assigneePayoutAddress == null) {
+        return {
+            ok: false,
+            error: "Job is missing accepted bid or assignee payout address",
+        }
     }
 
-    const [row] = await db
-        .select({
-            rewardAmount: agentJob.rewardAmount,
-            rewardCurrency: agentJob.rewardCurrency,
-        })
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+    const [bid] = await db
+        .select()
+        .from(agentJobBid)
+        .where(eq(agentJobBid.id, job.acceptedBidId))
         .limit(1)
 
-    if (!row) {
-        return { ok: false, error: "Job not found" }
+    if (!bid) {
+        return { ok: false, error: "Accepted bid not found" }
+    }
+    if (bid.currency !== "USDC") {
+        return {
+            ok: false,
+            error: "Pay-to-view on Base Sepolia supports USDC bids only",
+        }
     }
 
     return {
         ok: true,
-        payment: {
-            simulated: true,
-            rewardAmount: row.rewardAmount,
-            rewardCurrency: row.rewardCurrency,
-            note: "Placeholder: no funds transferred.",
-        },
+        settled: false,
+        paymentRequired: true,
+        amount: bid.amount.trim(),
+        currency: bid.currency,
+        network: X402_BASE_SEPOLIA_NETWORK,
+        payPath: `/api/marketplace/jobs/${input.jobId}/pay-to-view`,
     }
+}
+
+export const markJobPaymentSettled = async (input: {
+    jobId: string
+    receipt?: Record<string, unknown> | null
+}) => {
+    await db
+        .update(agentJob)
+        .set({
+            paymentStatus: "settled",
+            paymentSettledAt: new Date(),
+            paymentReceipt: input.receipt ?? null,
+        })
+        .where(eq(agentJob.id, input.jobId))
+}
+
+export const completeJobAsPoster = async (input: {
+    userId: string
+    jobId: string
+}): Promise<{ ok: true } | { ok: false; error: string }> => {
+    return confirmJobCompletion(input)
 }
 
 export const listMyPostedJobs = async (userId: string, limit = 30) => {

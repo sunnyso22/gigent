@@ -32,7 +32,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { getMessageText } from "@/components/agents/agents-chat-helpers"
+import { getMessageTextForDisplay } from "@/components/agents/agents-chat-helpers"
+import { useAgentsPayToViewOrchestration } from "@/components/agents/use-agents-pay-to-view-orchestration"
 import { KeySavedBanner } from "@/components/agents/key-saved-banner"
 
 /** Updated in an effect so `DefaultChatTransport` can read the latest id without stale closures. */
@@ -87,6 +88,14 @@ export const AgentsChatCore = ({
         transport,
     })
 
+    const { fallback: payToViewFallback } = useAgentsPayToViewOrchestration({
+            messages,
+            status,
+            conversationLoading,
+            hasApiKey,
+            sendMessage,
+        })
+
     const [draft, setDraft] = React.useState("")
     const [noKeyMessage, setNoKeyMessage] = React.useState<string | null>(null)
 
@@ -121,7 +130,7 @@ export const AgentsChatCore = ({
         if (!first) {
             return null
         }
-        const t = getMessageText(first, { showToolLogs }).trim()
+        const t = getMessageTextForDisplay(first, { showToolLogs }).trim()
         if (t.length <= 56) {
             return t
         }
@@ -294,10 +303,19 @@ export const AgentsChatCore = ({
                                             )}
                                         >
                                             <p className="whitespace-pre-wrap">
-                                                {getMessageText(m, {
+                                                {getMessageTextForDisplay(m, {
                                                     showToolLogs,
                                                 })}
                                             </p>
+                                            {m.role === "assistant" &&
+                                            payToViewFallback &&
+                                            payToViewFallback.assistantMessageId ===
+                                                m.id &&
+                                            payToViewFallback.lastError ? (
+                                                <p className="mt-2 border-t border-border pt-2 text-[10px] text-destructive">
+                                                    {payToViewFallback.lastError}
+                                                </p>
+                                            ) : null}
                                         </div>
                                     </div>
                                 ))
@@ -306,7 +324,7 @@ export const AgentsChatCore = ({
                 </ScrollArea>
 
                 <footer className="shrink-0 border-t border-border bg-background/80 px-4 py-3 backdrop-blur">
-                    <div className="mx-auto w-full max-w-3xl">
+                    <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
                         {error || noKeyMessage ? (
                             <div className="mb-2 rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
                                 <p>{error?.message ?? noKeyMessage}</p>

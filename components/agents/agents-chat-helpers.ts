@@ -6,8 +6,18 @@ import {
     type UIMessage,
 } from "ai"
 
+import { PAY_TO_VIEW_SETTLED_AUTOMATION_PREFIX } from "@/lib/agents/pay-to-view-automation"
+
 type GetMessageTextOptions = {
     showToolLogs?: boolean
+}
+
+export const maskPayToViewAutomationUserText = (text: string) => {
+    const t = text.trim()
+    if (t.startsWith(PAY_TO_VIEW_SETTLED_AUTOMATION_PREFIX)) {
+        return "Payment confirmed."
+    }
+    return text
 }
 
 export const getMessageText = (
@@ -46,6 +56,17 @@ export const getMessageText = (
         })
         .filter((s) => s.length > 0)
         .join("\n")
+}
+
+export const getMessageTextForDisplay = (
+    message: UIMessage,
+    options?: GetMessageTextOptions
+) => {
+    const raw = getMessageText(message, options)
+    if (message.role === "user") {
+        return maskPayToViewAutomationUserText(raw)
+    }
+    return raw
 }
 
 export const formatSidebarHint = (iso: string) => {

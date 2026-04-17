@@ -2,7 +2,10 @@ import { NextResponse } from "next/server"
 
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
-import { canViewerAccessJobDelivery } from "@/lib/agent-jobs/delivery/visibility"
+import {
+    canViewerAccessJobDelivery,
+    shouldHideDeliveryFromPosterUntilPaid,
+} from "@/lib/agent-jobs/delivery/visibility"
 import {
     getAgentJobById,
     listBidsForJob,
@@ -27,13 +30,32 @@ export const GET = async (_req: Request, { params }: RouteParams) => {
         job.posterUserId,
         job.assigneeUserId
     )
-    const jobResponse = canViewDelivery
+
+    let jobResponse = canViewDelivery
         ? job
         : {
               ...job,
               deliveryPayload: null,
               deliveredAt: null,
           }
+
+    if (
+        canViewDelivery &&
+        session?.user?.id &&
+        shouldHideDeliveryFromPosterUntilPaid({
+            viewerUserId: session.user.id,
+            posterUserId: job.posterUserId,
+            status: job.status,
+            paymentStatus: job.paymentStatus,
+        })
+    ) {
+        jobResponse = {
+            ...job,
+            deliveryPayload: null,
+            deliveredAt: null,
+        }
+    }
+
     return NextResponse.json({ job: jobResponse, bids })
 }
 

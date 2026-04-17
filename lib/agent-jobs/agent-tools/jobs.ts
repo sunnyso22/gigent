@@ -5,9 +5,10 @@ import { generateDeliveryImageAndUpload } from "@/lib/agent-jobs/delivery/image-
 import type { JobDeliveryPayload } from "@/lib/agent-jobs/delivery/payload"
 import {
     cancelAgentJobAsPoster,
-    completeJobWithPlaceholderPayment,
+    completeJobAsPoster,
     createAgentJob,
     getJobForViewer,
+    getPayToViewPreviewForPoster,
     listMyPostedJobs,
     searchAgentJobs,
     submitJobDelivery,
@@ -17,10 +18,7 @@ import {
 
 import { parseAgentJobStatusFilter } from "@/lib/agent-jobs/job-status"
 
-import {
-    keywordModeSchema,
-    rewardCurrencySchema,
-} from "./schemas"
+import { keywordModeSchema, rewardCurrencySchema } from "./schemas"
 
 type GetJobForViewerResult = Awaited<ReturnType<typeof getJobForViewer>>
 type JobRow = Extract<GetJobForViewerResult, { ok: true }>["job"]
@@ -36,6 +34,11 @@ const serializeJobForTool = (job: JobRow) => ({
         job.completedAt == null
             ? null
             : (job.completedAt?.toISOString?.() ?? String(job.completedAt)),
+    paymentSettledAt:
+        job.paymentSettledAt == null
+            ? null
+            : (job.paymentSettledAt?.toISOString?.() ??
+              String(job.paymentSettledAt)),
 })
 
 /** Flat object so JSON Schema root is `type: object` (Gateway rejects root `oneOf` from discriminated unions). */
@@ -61,11 +64,11 @@ const jobSubmitInputSchema = z
     })
     .refine(
         (d) =>
-            d.mode !== "text_and_image" ||
-            (d.body != null && d.prompt != null),
+            d.mode !== "text_and_image" || (d.body != null && d.prompt != null),
         {
             path: ["body"],
-            message: "body and prompt are required when mode is text_and_image.",
+            message:
+                "body and prompt are required when mode is text_and_image.",
         }
     )
 
@@ -86,12 +89,18 @@ export const createJobsTools = (userId: string) => ({
             title: z.string().min(1),
             description: z.string().min(1),
             requiredModelId: z.string().min(1),
-            rewardAmount: z.string().describe('Decimal string, e.g. "50" or "49.99"'),
+            rewardAmount: z
+                .string()
+                .describe('Decimal string, e.g. "50" or "49.99"'),
             rewardCurrency: rewardCurrencySchema,
         }),
         execute: async (input) => {
             const { id } = await createAgentJob({ userId, ...input })
-            return { success: true as const, jobId: id, message: `Created job ${id}` }
+            return {
+                success: true as const,
+                jobId: id,
+                message: `Created job ${id}`,
+            }
         },
     }),
 
@@ -121,7 +130,11 @@ export const createJobsTools = (userId: string) => ({
             ),
         execute: async (input) => {
             const { jobId, ...rest } = input
-            const result = await updateAgentJobAsPoster({ userId, jobId, ...rest })
+            const result = await updateAgentJobAsPoster({
+                userId,
+                jobId,
+                ...rest,
+            })
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
@@ -138,7 +151,10 @@ export const createJobsTools = (userId: string) => ({
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
-            return { success: true as const, message: `Job ${jobId} cancelled.` }
+            return {
+                success: true as const,
+                message: `Job ${jobId} cancelled.`,
+            }
         },
     }),
 
@@ -161,7 +177,9 @@ export const createJobsTools = (userId: string) => ({
                         }
                         if (Array.isArray(v)) {
                             const xs = v
-                                .filter((x): x is string => typeof x === "string")
+                                .filter(
+                                    (x): x is string => typeof x === "string"
+                                )
                                 .map((x) => parseAgentJobStatusFilter(x))
                                 .filter((s) => s !== "all")
                             if (xs.length === 0) {
@@ -203,7 +221,9 @@ export const createJobsTools = (userId: string) => ({
                     keywords: trimOptional(input.keywords),
                     keywordMode: input.keywordMode ?? "any",
                     status: input.status ?? "all",
-                    exactRequiredModelId: trimOptional(input.exactRequiredModelId),
+                    exactRequiredModelId: trimOptional(
+                        input.exactRequiredModelId
+                    ),
                     modelContains: trimOptional(input.modelContains),
                     posterNameContains: trimOptional(input.posterNameContains),
                     minRewardAmount: trimOptional(input.minRewardAmount),
@@ -242,7 +262,8 @@ export const createJobsTools = (userId: string) => ({
                 success: true as const,
                 jobs: jobs.map((j) => ({
                     ...j,
-                    createdAt: j.createdAt?.toISOString?.() ?? String(j.createdAt),
+                    createdAt:
+                        j.createdAt?.toISOString?.() ?? String(j.createdAt),
                 })),
             }
         },
@@ -250,10 +271,13 @@ export const createJobsTools = (userId: string) => ({
 
     job_get: tool({
         description:
-            "Get one job by id with fields appropriate for your role. Delivery content is only included if you are the poster or assignee.",
+            "Get one job by id with fields appropriate for your role. Status pending_review always means the assignee has already submitted delivery. As poster, the delivery payload may be hidden until x402 USDC pay-to-view is settled (check paymentStatus); after settled, delivery is visible. Assignee always sees their submitted delivery.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
-            const result = await getJobForViewer({ viewerUserId: userId, jobId })
+            const result = await getJobForViewer({
+                viewerUserId: userId,
+                jobId,
+            })
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
@@ -266,10 +290,13 @@ export const createJobsTools = (userId: string) => ({
 
     job_review: tool({
         description:
-            "Read job details and delivery for review (poster or assignee). Same visibility as the Marketplace job page: delivery is shown only to poster and assignee.",
+            "Read job details and delivery. pending_review means the assignee has already submitted—do not say they still need to submit. Poster: if payment is unsettled, delivery is hidden; after pay-to-view settles (wallet or automation message), call job_review anytime to read the full delivery. Assignee: sees their submission.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
-            const result = await getJobForViewer({ viewerUserId: userId, jobId })
+            const result = await getJobForViewer({
+                viewerUserId: userId,
+                jobId,
+            })
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
@@ -280,9 +307,45 @@ export const createJobsTools = (userId: string) => ({
         },
     }),
 
+    job_pay_to_view: tool({
+        description:
+            "As the poster: for pending_review jobs (delivery already submitted by assignee), when pay-to-view is not settled returns paymentRequired + payPath (USDC, Base Sepolia). The Agents client then runs x402 payment (no separate pay banner). After payment settles, the UI may send an automation user message—then call job_review immediately. If already settled, returns settled: true.",
+        inputSchema: z.object({ jobId: z.string().min(1) }),
+        execute: async ({ jobId }) => {
+            const result = await getPayToViewPreviewForPoster({
+                userId,
+                jobId,
+            })
+            if (!result.ok) {
+                return { success: false as const, error: result.error }
+            }
+            if (result.settled) {
+                return {
+                    success: true as const,
+                    paymentRequired: false as const,
+                    settled: true as const,
+                    message:
+                        "Pay-to-view already settled. Delivery was submitted by the assignee; use job_review to read it anytime.",
+                }
+            }
+            return {
+                success: true as const,
+                paymentRequired: true as const,
+                settled: false as const,
+                jobId,
+                amount: result.amount,
+                currency: result.currency,
+                network: result.network,
+                payPath: result.payPath,
+                message:
+                    "Assignee has already submitted (pending_review). Link wallet in Settings if needed; the client will complete x402 payment next. After payment settles, call job_review to see delivery (or when the automation message says pay-to-view settled).",
+            }
+        },
+    }),
+
     job_submit: tool({
         description:
-            "As the assignee: submit final delivery in one step. Mode text = essay/article body; image = AI-generated image from prompt; text_and_image = both. Uploads to storage as needed and sets job to pending_review.",
+            "As the assignee: submit final delivery in one step. Mode text = essay/article body; image = AI-generated image from prompt; text_and_image = both. Uploads to storage as needed. Sets status to pending_review (meaning submission is complete; poster must pay-to-view before seeing it).",
         inputSchema: jobSubmitInputSchema,
         execute: async (input) => {
             let payload: JobDeliveryPayload
@@ -346,17 +409,18 @@ export const createJobsTools = (userId: string) => ({
             }
             return {
                 success: true as const,
-                message: "Delivery submitted; poster can review.",
+                message:
+                    "Delivery submitted. Job is pending_review—the assignee has finished submitting; the poster can read the delivery after pay-to-view (if required), using job_review.",
             }
         },
     }),
 
     job_complete: tool({
         description:
-            "As the poster: after you accept the delivery (use job_review first), mark the job completed and run placeholder settlement. Real payments are not implemented yet.",
+            "As the poster: after you have read the delivery via job_review (pay-to-view must be settled first if applicable), mark the job completed when the user confirms acceptance. USDC moved at pay-to-view, not here.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
-            const result = await completeJobWithPlaceholderPayment({
+            const result = await completeJobAsPoster({
                 userId,
                 jobId,
             })
@@ -366,7 +430,6 @@ export const createJobsTools = (userId: string) => ({
             return {
                 success: true as const,
                 message: "Job completed.",
-                payment: result.payment,
             }
         },
     }),

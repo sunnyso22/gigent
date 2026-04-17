@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { requiresSessionPath } from "@/lib/auth/public-paths"
 import { authClient } from "@/lib/auth/client"
+import { formatShortWalletAddress } from "@/lib/wallet/format-address"
+import { useLinkedWalletAddress } from "@/lib/wallet/use-linked-wallet"
 
 type AccountUser = {
     name?: string | null
@@ -26,6 +28,8 @@ type AccountUser = {
 
 type UserAccountMenuProps = {
     user: AccountUser
+    /** `undefined` = not loaded yet; `null` = no wallet linked */
+    walletAddress?: string | null
 }
 
 const ThemeToggleMenuItem = () => {
@@ -63,7 +67,10 @@ const ThemeToggleMenuItem = () => {
     )
 }
 
-export const UserAccountMenu = ({ user }: UserAccountMenuProps) => {
+export const UserAccountMenu = ({
+    user,
+    walletAddress,
+}: UserAccountMenuProps) => {
     const pathname = usePathname()
 
     const signOutAndLeaveProtectedRoute = async () => {
@@ -103,6 +110,14 @@ export const UserAccountMenu = ({ user }: UserAccountMenuProps) => {
                                 {user.email}
                             </span>
                         ) : null}
+                        {walletAddress ? (
+                            <span
+                                className="truncate font-mono text-[10px] text-muted-foreground"
+                                title={walletAddress}
+                            >
+                                {formatShortWalletAddress(walletAddress)}
+                            </span>
+                        ) : null}
                     </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
@@ -132,6 +147,7 @@ export const UserAccountMenu = ({ user }: UserAccountMenuProps) => {
 
 export const SessionAccountMenu = () => {
     const { data: session, isPending } = authClient.useSession()
+    const walletAddress = useLinkedWalletAddress()
 
     if (isPending) {
         return (
@@ -153,6 +169,7 @@ export const SessionAccountMenu = () => {
                 email: session.user.email,
                 image: session.user.image,
             }}
+            walletAddress={walletAddress}
         />
     )
 }
