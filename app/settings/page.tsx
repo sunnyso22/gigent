@@ -45,9 +45,6 @@ const Page = async ({ searchParams }: SettingsPageProps) => {
                     </Button>
                     <div className="flex min-w-0 flex-col">
                         <span className="font-heading text-sm">Settings</span>
-                        <span className="text-[10px] text-muted-foreground">
-                            Account
-                        </span>
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">

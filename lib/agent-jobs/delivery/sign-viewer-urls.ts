@@ -44,16 +44,16 @@ const parseSupabasePublicObjectUrl = (
 /**
  * Replaces public Storage URLs with time-limited signed URLs so images/files load when the
  * bucket is **private** (public URLs return 404). No-op if Storage is unconfigured or the
- * viewer is not the poster or assignee.
+ * viewer is not the client or assigned provider.
  */
 export const signDeliveryPayloadUrlsForViewer = async (input: {
     jobId: string
     deliveryPayload: JobDeliveryPayloadFromDb | null
     viewerUserId: string | null
-    posterUserId: string
-    assigneeUserId: string | null
+    clientUserId: string
+    providerUserId: string | null
 }): Promise<JobDeliveryPayloadFromDb | null> => {
-    const { jobId, deliveryPayload, viewerUserId, posterUserId, assigneeUserId } =
+    const { deliveryPayload, viewerUserId, clientUserId, providerUserId } =
         input
 
     if (!deliveryPayload?.blocks?.length) {
@@ -61,7 +61,7 @@ export const signDeliveryPayloadUrlsForViewer = async (input: {
     }
 
     if (
-        !canViewerAccessJobDelivery(viewerUserId, posterUserId, assigneeUserId)
+        !canViewerAccessJobDelivery(viewerUserId, clientUserId, providerUserId)
     ) {
         return deliveryPayload
     }
@@ -81,19 +81,15 @@ export const signDeliveryPayloadUrlsForViewer = async (input: {
             if (!parsed) {
                 return block
             }
-            if (!parsed.objectPath.startsWith(`${jobId}/`)) {
-                return block
-            }
             const { data, error } = await client.storage
                 .from(parsed.bucket)
                 .createSignedUrl(parsed.objectPath, SIGNED_URL_TTL_SEC)
             if (error || !data?.signedUrl) {
-                console.error("[delivery-sign-url]", error)
                 return block
             }
             return { ...block, url: data.signedUrl }
         })
     )
 
-    return { blocks }
+    return { ...deliveryPayload, blocks }
 }

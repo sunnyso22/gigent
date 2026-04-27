@@ -5,7 +5,7 @@ import { getSession } from "@/lib/auth/session"
 import { signDeliveryPayloadUrlsForViewer } from "@/lib/agent-jobs/delivery/sign-viewer-urls"
 import {
     canViewerAccessJobDelivery,
-    shouldHideDeliveryFromPosterUntilPaid,
+    shouldHideDeliveryFromClientUntilOnChainSubmit,
 } from "@/lib/agent-jobs/delivery/visibility"
 import { getAgentJobById, listBidsForJob } from "@/lib/agent-jobs/service"
 
@@ -28,29 +28,28 @@ const Page = async ({ params }: JobPageProps) => {
     const viewerId = session?.user?.id ?? null
     const canViewDelivery = canViewerAccessJobDelivery(
         viewerId,
-        job.posterUserId,
-        job.assigneeUserId
+        job.clientUserId,
+        job.providerUserId
     )
 
-    const hideUntilPosterPays =
+    const hideUntilChainSubmit =
         viewerId != null &&
-        shouldHideDeliveryFromPosterUntilPaid({
+        shouldHideDeliveryFromClientUntilOnChainSubmit({
             viewerUserId: viewerId,
-            posterUserId: job.posterUserId,
-            status: job.status,
-            paymentStatus: job.paymentStatus,
+            clientUserId: job.clientUserId,
+            acpJobId: job.acpJobId,
+            acpStatus: job.acpStatus,
         })
 
-    const showDeliveryContent =
-        canViewDelivery && !hideUntilPosterPays
+    const showDeliveryContent = canViewDelivery && !hideUntilChainSubmit
 
     const deliveryPayload = showDeliveryContent
         ? await signDeliveryPayloadUrlsForViewer({
               jobId,
               deliveryPayload: job.deliveryPayload,
               viewerUserId: viewerId,
-              posterUserId: job.posterUserId,
-              assigneeUserId: job.assigneeUserId,
+              clientUserId: job.clientUserId,
+              providerUserId: job.providerUserId,
           })
         : null
 
@@ -59,11 +58,17 @@ const Page = async ({ params }: JobPageProps) => {
             <div className="flex flex-col gap-1">
                 <h1 className="font-heading text-lg">{job.title}</h1>
                 <p className="text-[10px] text-muted-foreground">
-                    {job.rewardAmount} {job.rewardCurrency} · {job.status} ·
+                    {job.budgetAmount} {job.budgetCurrency} · {job.status} ·
                     Model {job.requiredModelId}
+                    {job.acpExpiresAt != null
+                        ? ` · Expires ${job.acpExpiresAt.toLocaleDateString(
+                              undefined,
+                              { dateStyle: "medium" }
+                          )}`
+                        : ""}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                    Poster: {job.posterName}
+                    Client: {job.clientName}
                 </p>
             </div>
 
@@ -85,7 +90,7 @@ const Page = async ({ params }: JobPageProps) => {
                                 className="flex flex-wrap justify-between gap-2 border border-border bg-card px-2 py-1.5"
                             >
                                 <span>
-                                    {b.bidderName}: {b.amount} {b.currency}
+                                    {b.providerName}: {b.amount} {b.currency}
                                 </span>
                                 <span className="text-muted-foreground">
                                     {b.status}
@@ -102,16 +107,16 @@ const Page = async ({ params }: JobPageProps) => {
                     title: job.title,
                     description: job.description,
                     requiredModelId: job.requiredModelId,
-                    rewardAmount: job.rewardAmount,
-                    rewardCurrency: job.rewardCurrency,
+                    budgetAmount: job.budgetAmount,
+                    budgetCurrency: job.budgetCurrency,
                     status: job.status,
-                    posterUserId: job.posterUserId,
-                    posterName: job.posterName,
-                    assigneeUserId: job.assigneeUserId,
-                    assigneeName: job.assigneeName,
+                    clientUserId: job.clientUserId,
+                    clientName: job.clientName,
+                    providerUserId: job.providerUserId,
+                    providerName: job.providerName,
                     acceptedBidId: job.acceptedBidId,
                     deliveryPayload,
-                    deliveredAt: showDeliveryContent ? job.deliveredAt : null,
+                    submittedAt: showDeliveryContent ? job.submittedAt : null,
                     completedAt: job.completedAt,
                 }}
                 sessionUserId={session?.user?.id ?? null}

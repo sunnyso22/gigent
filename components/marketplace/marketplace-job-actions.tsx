@@ -8,16 +8,16 @@ type JobDetail = {
     title: string
     description: string
     requiredModelId: string
-    rewardAmount: string
-    rewardCurrency: string
+    budgetAmount: string
+    budgetCurrency: string
     status: string
-    posterUserId: string
-    posterName: string
-    assigneeUserId: string | null
-    assigneeName: string | null
+    clientUserId: string
+    clientName: string
+    providerUserId: string | null
+    providerName: string | null
     acceptedBidId: string | null
     deliveryPayload: JobDeliveryPayloadFromDb | null
-    deliveredAt: Date | null
+    submittedAt: Date | null
     completedAt: Date | null
 }
 
@@ -30,20 +30,20 @@ export const MarketplaceJobActions = ({
     job,
     sessionUserId,
 }: MarketplaceJobActionsProps) => {
-    const isPoster = sessionUserId === job.posterUserId
-    const isAssignee =
+    const isClient = sessionUserId === job.clientUserId
+    const isProvider =
         sessionUserId != null &&
-        job.assigneeUserId != null &&
-        sessionUserId === job.assigneeUserId
+        job.providerUserId != null &&
+        sessionUserId === job.providerUserId
 
     const showDeliveryPanel =
-        (isPoster || isAssignee) &&
-        (job.status === "pending_review" || job.status === "completed") &&
-        (job.deliveredAt != null ||
+        (isClient || isProvider) &&
+        (job.status === "submitted" || job.status === "completed") &&
+        (job.submittedAt != null ||
             (job.deliveryPayload?.blocks?.length ?? 0) > 0)
 
     const deliveryHeading = (() => {
-        if (isAssignee) {
+        if (isProvider) {
             return job.status === "completed"
                 ? "Your delivery"
                 : "Your submission"
@@ -69,15 +69,15 @@ export const MarketplaceJobActions = ({
                 <div className="flex flex-col gap-3 rounded-none border border-border bg-card p-3">
                     <div className="flex flex-col gap-0.5">
                         <p className="text-xs font-medium">{deliveryHeading}</p>
-                        {isPoster && job.assigneeName ? (
+                        {isClient && job.providerName ? (
                             <p className="text-[10px] text-muted-foreground">
-                                From {job.assigneeName}
+                                From {job.providerName}
                             </p>
                         ) : null}
-                        {job.deliveredAt ? (
+                        {job.submittedAt ? (
                             <p className="text-[10px] text-muted-foreground">
                                 Submitted{" "}
-                                {new Date(job.deliveredAt).toLocaleString()}
+                                {new Date(job.submittedAt).toLocaleString()}
                             </p>
                         ) : null}
                         {job.status === "completed" && job.completedAt ? (

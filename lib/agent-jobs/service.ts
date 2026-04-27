@@ -11,9 +11,25 @@ import {
 } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 
+import {
+    AGENTIC_COMMERCE_ADDRESS,
+    DEFAULT_JOB_EXPIRY_SECONDS,
+    KITE_TESTNET_CHAIN_ID,
+} from "@/lib/acp/constants"
+import { encodeAcpCreateJob } from "@/lib/acp/encode-calls"
+import {
+    buildGigentTaggedJobDescription,
+    gigentJobTagPrefix,
+} from "@/lib/acp/listing-description"
+import { deliverableCommitmentBytes32 } from "@/lib/acp/deliverable-commitment"
+import { syncAgentJobFromChainByDbId } from "@/lib/acp/sync-agent-job"
+import { formatUsdtWei, usdtDecimalToWei } from "@/lib/acp/usdt-amount"
 import { agentJob, agentJobBid, user, userWallet } from "@/lib/db/schema"
 import { db } from "@/lib/db"
-import { X402_BASE_SEPOLIA_NETWORK } from "@/lib/wallet/constants"
+import { KITE_CAIP2_NETWORK } from "@/lib/wallet/constants"
+import { getAddress, zeroAddress, type Address } from "viem"
+
+import { readAcpJob } from "@/lib/acp/read-job"
 
 import {
     parseJobDeliveryPayload,
@@ -21,9 +37,14 @@ import {
 } from "./delivery/payload"
 import {
     canViewerAccessJobDelivery,
-    shouldHideDeliveryFromPosterUntilPaid,
+    shouldHideDeliveryFromClientUntilOnChainSubmit,
 } from "./delivery/visibility"
 import type { AgentJobStatus } from "./job-status"
+
+export { syncAgentJobFromChainByDbId } from "@/lib/acp/sync-agent-job"
+
+export const JOB_ONCHAIN_IMMUTABLE_GUIDANCE =
+    "Fields committed in Agentic Commerce (on-chain description, budget, expiry, hook, etc.) cannot be edited after createJob. When the chain allows, use job_reject to terminate this job, then job_create for a replacement listing."
 
 const escapeIlikePattern = (s: string) =>
     s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
@@ -83,7 +104,6 @@ const tokenizeSearchQuery = (raw: string): string[] => {
         "that",
         "me",
         "my",
-        // Keep "job(s)" / marketplace terms — users and the agent often search with them.
     ])
     const splitAlnum = raw
         .toLowerCase()
@@ -94,7 +114,6 @@ const tokenizeSearchQuery = (raw: string): string[] => {
     if (primary.length > 0) {
         return primary
     }
-    /** If everything was stop words, fall back to whitespace words (still drops 1-char noise). */
     const loose = raw
         .toLowerCase()
         .split(/\s+/)
@@ -111,12 +130,12 @@ export {
 
 export type BidStatus = "pending" | "accepted" | "rejected"
 
-const parsePositiveAmount = (raw: string): number => {
-    const n = Number.parseFloat(raw.trim())
-    if (!Number.isFinite(n) || n <= 0) {
-        throw new Error("Amount must be a positive number")
+/** Validates a positive whole-USDT amount (same on-chain scale as `usdtDecimalToWei`). */
+const parsePositiveAmount = (raw: string): void => {
+    const s = usdtDecimalToWei(raw)
+    if (BigInt(s) <= BigInt(0)) {
+        throw new Error("Amount must be positive")
     }
-    return n
 }
 
 export const createAgentJob = async (input: {
@@ -124,35 +143,141 @@ export const createAgentJob = async (input: {
     title: string
     description: string
     requiredModelId: string
-    rewardAmount: string
-    rewardCurrency: string
+    /** Whole USDT as a string (e.g. "50"); stored 1:1 in `acp_budget` for on-chain budget. */
+    budgetAmount: string
+    /** Unix seconds for on-chain `expiredAt`; default now + 7 days when omitted. */
+    expiresAtUnix?: number
 }) => {
-    parsePositiveAmount(input.rewardAmount)
+    parsePositiveAmount(input.budgetAmount)
 
     const id = crypto.randomUUID()
+    const acpBudget = usdtDecimalToWei(input.budgetAmount)
+    const expMs =
+        input.expiresAtUnix != null
+            ? input.expiresAtUnix * 1000
+            : Date.now() + DEFAULT_JOB_EXPIRY_SECONDS * 1000
+    const acpDescription = buildGigentTaggedJobDescription(
+        id,
+        input.description.trim()
+    )
+
     await db.insert(agentJob).values({
         id,
         title: input.title.trim(),
         description: input.description.trim(),
         requiredModelId: input.requiredModelId.trim(),
-        rewardAmount: input.rewardAmount.trim(),
-        rewardCurrency: input.rewardCurrency.trim().toUpperCase(),
-        posterUserId: input.userId,
+        clientUserId: input.userId,
         status: "open",
+        acpBudget,
+        acpDescription,
+        acpExpiresAt: new Date(expMs),
+        acpContractAddress: AGENTIC_COMMERCE_ADDRESS.toLowerCase(),
     })
 
     return { id }
 }
 
-export const updateAgentJobAsPoster = async (input: {
+export type GetCreateJobOnChainPayloadResult =
+    | {
+          ok: true
+          dbJobId: string
+          chainId: number
+          commerceAddress: Address
+          createJobData: `0x${string}`
+          /** Whole USDT uint256 string for `setBudget` (e.g. "10" for 10 USDT). */
+          initialBudgetAmount: string
+      }
+    | { ok: false; error: string }
+
+/** Calldata for `createJob` on Kite (evaluator = linked wallet; provider/hook = zero). */
+export const getCreateJobOnChainPayload = async (input: {
     userId: string
     jobId: string
-    title?: string
-    description?: string
-    requiredModelId?: string
-    rewardAmount?: string
-    rewardCurrency?: string
+}): Promise<GetCreateJobOnChainPayloadResult> => {
+    const [job] = await db
+        .select()
+        .from(agentJob)
+        .where(eq(agentJob.id, input.jobId))
+        .limit(1)
+
+    if (!job) {
+        return { ok: false, error: "Job not found" }
+    }
+    if (job.clientUserId !== input.userId) {
+        return { ok: false, error: "Only the job client can publish on-chain" }
+    }
+    if (job.acpJobId) {
+        return { ok: false, error: "Job already has an on-chain id" }
+    }
+    if (job.status !== "open") {
+        return { ok: false, error: "Only open listings can be published on-chain" }
+    }
+
+    let acpDesc = job.acpDescription?.trim()
+    if (!acpDesc) {
+        acpDesc = buildGigentTaggedJobDescription(job.id, job.description)
+        await db
+            .update(agentJob)
+            .set({ acpDescription: acpDesc })
+            .where(eq(agentJob.id, job.id))
+    }
+
+    if (!job.acpExpiresAt) {
+        return { ok: false, error: "Job is missing expiry timestamp" }
+    }
+
+    const [walletRow] = await db
+        .select({ address: userWallet.address })
+        .from(userWallet)
+        .where(
+            and(
+                eq(userWallet.userId, input.userId),
+                eq(userWallet.chainId, KITE_CAIP2_NETWORK)
+            )
+        )
+        .limit(1)
+
+    if (!walletRow?.address) {
+        return {
+            ok: false,
+            error:
+                "Link your Kite Testnet wallet in Settings before publishing on-chain.",
+        }
+    }
+
+    const budget = job.acpBudget?.trim() ?? "0"
+    if (budget === "0") {
+        return { ok: false, error: "Budget must be greater than zero for setBudget" }
+    }
+
+    const createJobData = encodeAcpCreateJob({
+        provider: zeroAddress,
+        evaluator: getAddress(walletRow.address as Address),
+        expiredAt: BigInt(Math.floor(job.acpExpiresAt.getTime() / 1000)),
+        description: acpDesc,
+        hook: zeroAddress,
+    })
+
+    return {
+        ok: true,
+        dbJobId: job.id,
+        chainId: KITE_TESTNET_CHAIN_ID,
+        commerceAddress: getAddress(AGENTIC_COMMERCE_ADDRESS),
+        createJobData,
+        initialBudgetAmount: budget,
+    }
+}
+
+export const linkDbJobToAcpJobId = async (input: {
+    userId: string
+    jobId: string
+    acpJobId: string
 }) => {
+    const acpIdRaw = input.acpJobId.trim()
+    if (!/^\d+$/.test(acpIdRaw)) {
+        return { ok: false as const, error: "acpJobId must be a decimal string" }
+    }
+
     const [job] = await db
         .select()
         .from(agentJob)
@@ -162,23 +287,96 @@ export const updateAgentJobAsPoster = async (input: {
     if (!job) {
         return { ok: false as const, error: "Job not found" }
     }
-    if (job.posterUserId !== input.userId) {
-        return { ok: false as const, error: "Only the poster can update this job" }
+    if (job.clientUserId !== input.userId) {
+        return { ok: false as const, error: "Only the client can link this job" }
     }
-    if (job.status !== "open") {
+    if (job.acpJobId) {
+        return { ok: false as const, error: "Job is already linked on-chain" }
+    }
+
+    const [walletRow] = await db
+        .select({ address: userWallet.address })
+        .from(userWallet)
+        .where(
+            and(
+                eq(userWallet.userId, input.userId),
+                eq(userWallet.chainId, KITE_CAIP2_NETWORK)
+            )
+        )
+        .limit(1)
+
+    if (!walletRow?.address) {
+        return { ok: false as const, error: "Kite wallet not linked" }
+    }
+
+    const chainJob = await readAcpJob(BigInt(acpIdRaw))
+    if (
+        getAddress(chainJob.client) !== getAddress(walletRow.address as Address)
+    ) {
         return {
             ok: false as const,
-            error: "Only open jobs can be edited (cancel or complete flow first)",
+            error:
+                "On-chain job client does not match your linked wallet address",
         }
     }
 
-    const patch: {
-        title?: string
-        description?: string
-        requiredModelId?: string
-        rewardAmount?: string
-        rewardCurrency?: string
-    } = {}
+    if (!chainJob.description.startsWith(gigentJobTagPrefix(job.id))) {
+        return {
+            ok: false as const,
+            error: "On-chain job does not match this listing (description tag)",
+        }
+    }
+
+    await db
+        .update(agentJob)
+        .set({ acpJobId: acpIdRaw })
+        .where(eq(agentJob.id, job.id))
+
+    await syncAgentJobFromChainByDbId(job.id)
+
+    return { ok: true as const }
+}
+
+export type UpdateAgentJobAsClientResult =
+    | { ok: true; applied: true }
+    | { ok: true; applied: false; guidance: string }
+    | { ok: false; error: string }
+
+export const updateAgentJobAsClient = async (input: {
+    userId: string
+    jobId: string
+    title?: string
+    description?: string
+    requiredModelId?: string
+    budgetAmount?: string
+}): Promise<UpdateAgentJobAsClientResult> => {
+    const [job] = await db
+        .select()
+        .from(agentJob)
+        .where(eq(agentJob.id, input.jobId))
+        .limit(1)
+
+    if (!job) {
+        return { ok: false, error: "Job not found" }
+    }
+    if (job.clientUserId !== input.userId) {
+        return { ok: false, error: "Only the client can update this job" }
+    }
+    if (job.acpJobId != null) {
+        return {
+            ok: true,
+            applied: false,
+            guidance: JOB_ONCHAIN_IMMUTABLE_GUIDANCE,
+        }
+    }
+    if (job.status !== "open") {
+        return {
+            ok: false,
+            error: "Only open jobs can be edited before an on-chain job exists",
+        }
+    }
+
+    const patch: Partial<typeof agentJob.$inferInsert> = {}
 
     if (input.title !== undefined) {
         patch.title = input.title.trim()
@@ -189,50 +387,36 @@ export const updateAgentJobAsPoster = async (input: {
     if (input.requiredModelId !== undefined) {
         patch.requiredModelId = input.requiredModelId.trim()
     }
-    if (input.rewardAmount !== undefined) {
-        parsePositiveAmount(input.rewardAmount)
-        patch.rewardAmount = input.rewardAmount.trim()
-    }
-    if (input.rewardCurrency !== undefined) {
-        const c = input.rewardCurrency.trim().toUpperCase()
-        if (c !== "USDC" && c !== "ETH") {
-            return { ok: false as const, error: "rewardCurrency must be USDC or ETH" }
-        }
-        patch.rewardCurrency = c
+    if (input.budgetAmount !== undefined) {
+        parsePositiveAmount(input.budgetAmount)
+        patch.acpBudget = usdtDecimalToWei(input.budgetAmount)
     }
 
     if (Object.keys(patch).length === 0) {
-        return { ok: false as const, error: "No fields to update" }
+        return { ok: false, error: "No fields to update" }
     }
 
     await db.update(agentJob).set(patch).where(eq(agentJob.id, input.jobId))
 
-    return { ok: true as const }
+    return { ok: true, applied: true }
 }
 
 export type SearchAgentJobsInput = {
-    /** Matched against title, description, model id, poster name (see keywordMode). */
     keywords?: string
-    /** Default `any` (OR tokens); `all` = every token must match (AND). */
     keywordMode?: KeywordMatchMode
     status?: AgentJobStatus | AgentJobStatus[] | "all"
-    /** Exact match on required_model_id. */
     exactRequiredModelId?: string
-    /** Substring match on required_model_id (ILIKE). */
     modelContains?: string
-    /** Substring match on poster display name (ILIKE). */
-    posterNameContains?: string
-    minRewardAmount?: string
-    maxRewardAmount?: string
-    /** Required when filtering by min/max reward; same-currency rows only. */
-    rewardCurrency?: "USDC" | "ETH"
+    clientNameContains?: string
+    minBudgetAmount?: string
+    maxBudgetAmount?: string
     limit?: number
 }
 
-const parseRewardBound = (raw: string): number => {
+const parseBudgetBound = (raw: string): number => {
     const n = Number.parseFloat(raw.trim())
     if (!Number.isFinite(n)) {
-        throw new Error("Reward bound must be a finite number")
+        throw new Error("Budget bound must be a finite number")
     }
     return n
 }
@@ -254,7 +438,7 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
 
     const exactModel = trimOptional(input.exactRequiredModelId)
     const modelHas = trimOptional(input.modelContains)
-    const posterHas = trimOptional(input.posterNameContains)
+    const clientHas = trimOptional(input.clientNameContains)
 
     const conditions: SQL[] = []
 
@@ -277,30 +461,21 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
             ilike(agentJob.requiredModelId, `%${escapeIlikePattern(modelHas)}%`)
         )
     }
-    if (posterHas) {
-        conditions.push(ilike(user.name, `%${escapeIlikePattern(posterHas)}%`))
+    if (clientHas) {
+        conditions.push(ilike(user.name, `%${escapeIlikePattern(clientHas)}%`))
     }
 
-    const minRaw = trimOptional(input.minRewardAmount)
-    const maxRaw = trimOptional(input.maxRewardAmount)
-    if (minRaw !== undefined || maxRaw !== undefined) {
-        const currency = input.rewardCurrency?.trim().toUpperCase()
-        if (currency !== "USDC" && currency !== "ETH") {
-            throw new Error(
-                "rewardCurrency (USDC or ETH) is required when filtering by min/max reward"
-            )
-        }
-        conditions.push(eq(agentJob.rewardCurrency, currency))
-        if (minRaw !== undefined) {
-            conditions.push(
-                sql`(${agentJob.rewardAmount})::numeric >= ${parseRewardBound(minRaw)}`
-            )
-        }
-        if (maxRaw !== undefined) {
-            conditions.push(
-                sql`(${agentJob.rewardAmount})::numeric <= ${parseRewardBound(maxRaw)}`
-            )
-        }
+    const minRaw = trimOptional(input.minBudgetAmount)
+    const maxRaw = trimOptional(input.maxBudgetAmount)
+    if (minRaw !== undefined) {
+        conditions.push(
+            sql`(${agentJob.acpBudget})::numeric >= ${parseBudgetBound(minRaw)}`
+        )
+    }
+    if (maxRaw !== undefined) {
+        conditions.push(
+            sql`(${agentJob.acpBudget})::numeric <= ${parseBudgetBound(maxRaw)}`
+        )
     }
 
     if (q) {
@@ -331,15 +506,15 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
             title: agentJob.title,
             description: agentJob.description,
             requiredModelId: agentJob.requiredModelId,
-            rewardAmount: agentJob.rewardAmount,
-            rewardCurrency: agentJob.rewardCurrency,
+            acpBudget: agentJob.acpBudget,
+            acpExpiresAt: agentJob.acpExpiresAt,
             status: agentJob.status,
-            posterUserId: agentJob.posterUserId,
-            posterName: user.name,
+            clientUserId: agentJob.clientUserId,
+            clientName: user.name,
             createdAt: agentJob.createdAt,
         })
         .from(agentJob)
-        .innerJoin(user, eq(agentJob.posterUserId, user.id))
+        .innerJoin(user, eq(agentJob.clientUserId, user.id))
 
     const filtered =
         conditions.length > 0 ? base.where(and(...conditions)!) : base
@@ -348,11 +523,15 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
         .orderBy(desc(agentJob.createdAt))
         .limit(limit)
 
-    return rows
+    return rows.map((r) => ({
+        ...r,
+        budgetAmount: formatUsdtWei(r.acpBudget ?? "0"),
+        budgetCurrency: "USDT" as const,
+    }))
 }
 
 export const getAgentJobById = async (jobId: string) => {
-    const assigneeUser = alias(user, "agent_job_assignee")
+    const providerUser = alias(user, "agent_job_provider")
 
     const [row] = await db
         .select({
@@ -360,26 +539,34 @@ export const getAgentJobById = async (jobId: string) => {
             title: agentJob.title,
             description: agentJob.description,
             requiredModelId: agentJob.requiredModelId,
-            rewardAmount: agentJob.rewardAmount,
-            rewardCurrency: agentJob.rewardCurrency,
+            acpBudget: agentJob.acpBudget,
             status: agentJob.status,
-            posterUserId: agentJob.posterUserId,
-            posterName: user.name,
-            assigneeUserId: agentJob.assigneeUserId,
-            assigneeName: assigneeUser.name,
+            clientUserId: agentJob.clientUserId,
+            clientName: user.name,
+            providerUserId: agentJob.providerUserId,
+            providerName: providerUser.name,
             acceptedBidId: agentJob.acceptedBidId,
             deliveryPayload: agentJob.deliveryPayload,
-            deliveredAt: agentJob.deliveredAt,
+            submittedAt: agentJob.submittedAt,
             completedAt: agentJob.completedAt,
-            assigneePayoutAddress: agentJob.assigneePayoutAddress,
-            paymentStatus: agentJob.paymentStatus,
-            paymentSettledAt: agentJob.paymentSettledAt,
-            paymentReceipt: agentJob.paymentReceipt,
+            providerPayoutAddress: agentJob.providerPayoutAddress,
+            acpJobId: agentJob.acpJobId,
+            acpChainId: agentJob.acpChainId,
+            acpContractAddress: agentJob.acpContractAddress,
+            acpClientAddress: agentJob.acpClientAddress,
+            acpProviderAddress: agentJob.acpProviderAddress,
+            acpEvaluatorAddress: agentJob.acpEvaluatorAddress,
+            acpDescription: agentJob.acpDescription,
+            acpExpiresAt: agentJob.acpExpiresAt,
+            acpStatus: agentJob.acpStatus,
+            acpHookAddress: agentJob.acpHookAddress,
+            deliverableCommitment: agentJob.deliverableCommitment,
+            lastChainSyncAt: agentJob.lastChainSyncAt,
             createdAt: agentJob.createdAt,
         })
         .from(agentJob)
-        .innerJoin(user, eq(agentJob.posterUserId, user.id))
-        .leftJoin(assigneeUser, eq(agentJob.assigneeUserId, assigneeUser.id))
+        .innerJoin(user, eq(agentJob.clientUserId, user.id))
+        .leftJoin(providerUser, eq(agentJob.providerUserId, providerUser.id))
         .where(eq(agentJob.id, jobId))
         .limit(1)
 
@@ -389,6 +576,8 @@ export const getAgentJobById = async (jobId: string) => {
 
     return {
         ...row,
+        budgetAmount: formatUsdtWei(row.acpBudget ?? "0"),
+        budgetCurrency: "USDT" as const,
         deliveryPayload: parseJobDeliveryPayloadFromDb(row.deliveryPayload),
     }
 }
@@ -398,15 +587,15 @@ export const listBidsForJob = async (jobId: string) => {
         .select({
             id: agentJobBid.id,
             jobId: agentJobBid.jobId,
-            bidderUserId: agentJobBid.bidderUserId,
-            bidderName: user.name,
+            providerUserId: agentJobBid.providerUserId,
+            providerName: user.name,
             amount: agentJobBid.amount,
             currency: agentJobBid.currency,
             status: agentJobBid.status,
             createdAt: agentJobBid.createdAt,
         })
         .from(agentJobBid)
-        .innerJoin(user, eq(agentJobBid.bidderUserId, user.id))
+        .innerJoin(user, eq(agentJobBid.providerUserId, user.id))
         .where(eq(agentJobBid.jobId, jobId))
         .orderBy(desc(agentJobBid.createdAt))
 }
@@ -428,7 +617,7 @@ export const placeBid = async (input: {
     if (job.status !== "open") {
         return { ok: false as const, error: "Job is not open for bids" }
     }
-    if (job.posterUserId === input.userId) {
+    if (job.clientUserId === input.userId) {
         return { ok: false as const, error: "You cannot bid on your own job" }
     }
 
@@ -438,7 +627,7 @@ export const placeBid = async (input: {
         .where(
             and(
                 eq(agentJobBid.jobId, input.jobId),
-                eq(agentJobBid.bidderUserId, input.userId)
+                eq(agentJobBid.providerUserId, input.userId)
             )
         )
         .limit(1)
@@ -457,9 +646,9 @@ export const placeBid = async (input: {
         await db.insert(agentJobBid).values({
             id,
             jobId: input.jobId,
-            bidderUserId: input.userId,
+            providerUserId: input.userId,
             amount: input.amount.trim(),
-            currency: job.rewardCurrency,
+            currency: "USDT",
             status: "pending",
         })
     } catch (e) {
@@ -499,11 +688,17 @@ export const withdrawBid = async (input: {
     if (!bid) {
         return { ok: false as const, error: "Bid not found for this job" }
     }
-    if (bid.bidderUserId !== input.userId) {
-        return { ok: false as const, error: "Only the bidder can withdraw this bid" }
+    if (bid.providerUserId !== input.userId) {
+        return {
+            ok: false as const,
+            error: "Only the bidder can withdraw this bid",
+        }
     }
     if (bid.status !== "pending") {
-        return { ok: false as const, error: "Only pending bids can be withdrawn" }
+        return {
+            ok: false as const,
+            error: "Only pending bids can be withdrawn",
+        }
     }
 
     const [job] = await db
@@ -542,11 +737,24 @@ export const acceptBid = async (input: {
         if (!job) {
             return { ok: false as const, error: "Job not found" }
         }
-        if (job.posterUserId !== input.userId) {
-            return { ok: false as const, error: "Only the poster can accept a bid" }
+        if (job.clientUserId !== input.userId) {
+            return {
+                ok: false as const,
+                error: "Only the client can accept a bid",
+            }
         }
         if (job.status !== "open") {
-            return { ok: false as const, error: "Job is not open for acceptance" }
+            return {
+                ok: false as const,
+                error: "Job is not open for acceptance",
+            }
+        }
+        if (!job.acpJobId) {
+            return {
+                ok: false as const,
+                error:
+                    "Finish job_create on-chain first (wallet prompts for createJob + setBudget) so this job has an on-chain id before you accept a bid.",
+            }
         }
 
         const [bid] = await tx
@@ -572,18 +780,18 @@ export const acceptBid = async (input: {
             .from(userWallet)
             .where(
                 and(
-                    eq(userWallet.userId, bid.bidderUserId),
-                    eq(userWallet.chainId, X402_BASE_SEPOLIA_NETWORK)
+                    eq(userWallet.userId, bid.providerUserId),
+                    eq(userWallet.chainId, KITE_CAIP2_NETWORK)
                 )
             )
             .limit(1)
 
-        const assigneePayoutAddress = walletRow?.address ?? null
-        if (!assigneePayoutAddress) {
+        const providerPayoutAddress = walletRow?.address ?? null
+        if (!providerPayoutAddress) {
             return {
                 ok: false as const,
                 error:
-                    "The bidder must link a Base Sepolia wallet in Settings before their bid can be accepted.",
+                    "The provider must link a Kite Testnet wallet in Settings before their bid can be accepted.",
             }
         }
 
@@ -606,10 +814,11 @@ export const acceptBid = async (input: {
         await tx
             .update(agentJob)
             .set({
-                status: "assigned",
-                assigneeUserId: bid.bidderUserId,
+                status: "funded",
+                providerUserId: bid.providerUserId,
                 acceptedBidId: input.bidId,
-                assigneePayoutAddress,
+                providerPayoutAddress,
+                acpBudget: usdtDecimalToWei(bid.amount.trim()),
             })
             .where(eq(agentJob.id, input.jobId))
 
@@ -627,6 +836,8 @@ export const submitJobDelivery = async (input: {
         return { ok: false as const, error: parsed.error }
     }
 
+    const commitment = deliverableCommitmentBytes32(parsed.data)
+
     const [job] = await db
         .select()
         .from(agentJob)
@@ -636,29 +847,33 @@ export const submitJobDelivery = async (input: {
     if (!job) {
         return { ok: false as const, error: "Job not found" }
     }
-    if (job.assigneeUserId !== input.userId) {
+    if (job.providerUserId !== input.userId) {
         return {
             ok: false as const,
-            error: "Only the assigned bidder can submit delivery",
+            error: "Only the assigned provider can submit delivery",
         }
     }
-    if (job.status !== "assigned") {
+    if (job.status !== "funded") {
         return {
             ok: false as const,
-            error: "Job must be in assigned state to submit delivery",
+            error: "Job must be in funded state to submit delivery",
         }
     }
 
     await db
         .update(agentJob)
         .set({
-            status: "pending_review",
-            deliveryPayload: parsed.data,
-            deliveredAt: new Date(),
+            status: "submitted",
+            deliveryPayload: parsed.data as Record<string, unknown>,
+            deliverableCommitment: commitment,
+            submittedAt: new Date(),
         })
         .where(eq(agentJob.id, input.jobId))
 
-    return { ok: true as const }
+    return {
+        ok: true as const,
+        deliverableCommitment: commitment,
+    }
 }
 
 export const assertJobDeliveryUploadAllowed = async (input: {
@@ -669,7 +884,7 @@ export const assertJobDeliveryUploadAllowed = async (input: {
         .select({
             id: agentJob.id,
             status: agentJob.status,
-            assigneeUserId: agentJob.assigneeUserId,
+            providerUserId: agentJob.providerUserId,
         })
         .from(agentJob)
         .where(eq(agentJob.id, input.jobId))
@@ -678,16 +893,16 @@ export const assertJobDeliveryUploadAllowed = async (input: {
     if (!job) {
         return { ok: false as const, error: "Job not found" }
     }
-    if (job.assigneeUserId !== input.userId) {
+    if (job.providerUserId !== input.userId) {
         return {
             ok: false as const,
-            error: "Only the assignee can upload delivery files for this job",
+            error: "Only the provider can upload delivery files for this job",
         }
     }
-    if (job.status !== "assigned") {
+    if (job.status !== "funded") {
         return {
             ok: false as const,
-            error: "Upload is only allowed while the job is assigned",
+            error: "Upload is only allowed while the job is funded",
         }
     }
     return { ok: true as const }
@@ -697,6 +912,8 @@ export const confirmJobCompletion = async (input: {
     userId: string
     jobId: string
 }) => {
+    await syncAgentJobFromChainByDbId(input.jobId)
+
     const [job] = await db
         .select()
         .from(agentJob)
@@ -706,34 +923,40 @@ export const confirmJobCompletion = async (input: {
     if (!job) {
         return { ok: false as const, error: "Job not found" }
     }
-    if (job.posterUserId !== input.userId) {
-        return { ok: false as const, error: "Only the poster can confirm completion" }
+    if (job.clientUserId !== input.userId) {
+        return {
+            ok: false as const,
+            error: "Only the client can confirm completion",
+        }
     }
-    if (job.status !== "pending_review") {
+    if (job.status !== "submitted" && job.status !== "completed") {
         return {
             ok: false as const,
             error: "Job is not awaiting your review",
         }
     }
-    if (job.paymentStatus !== "settled") {
+    if (job.acpStatus?.toLowerCase() !== "completed") {
         return {
             ok: false as const,
-            error: "Pay to view delivery (x402 USDC) before completing the job",
+            error:
+                "Call complete on the Agentic Commerce contract from your Kite wallet after reviewing, then use job_sync_chain or try again.",
         }
     }
 
-    await db
-        .update(agentJob)
-        .set({
-            status: "completed",
-            completedAt: new Date(),
-        })
-        .where(eq(agentJob.id, input.jobId))
+    if (job.status !== "completed") {
+        await db
+            .update(agentJob)
+            .set({
+                status: "completed",
+                completedAt: job.completedAt ?? new Date(),
+            })
+            .where(eq(agentJob.id, input.jobId))
+    }
 
     return { ok: true as const }
 }
 
-export const cancelAgentJobAsPoster = async (input: {
+export const rejectAgentJobAsClient = async (input: {
     userId: string
     jobId: string
 }) => {
@@ -746,23 +969,169 @@ export const cancelAgentJobAsPoster = async (input: {
     if (!job) {
         return { ok: false as const, error: "Job not found" }
     }
-    if (job.posterUserId !== input.userId) {
-        return { ok: false as const, error: "Only the poster can cancel this job" }
+    if (job.clientUserId !== input.userId) {
+        return { ok: false as const, error: "Only the client can reject this job" }
     }
-    if (job.status !== "open") {
+
+    if (!job.acpJobId) {
+        if (job.status !== "open") {
+            return {
+                ok: false as const,
+                error: "Only open jobs without an on-chain id can be abandoned this way",
+            }
+        }
+        await db
+            .update(agentJob)
+            .set({ status: "rejected" })
+            .where(eq(agentJob.id, input.jobId))
+        return { ok: true as const }
+    }
+
+    await syncAgentJobFromChainByDbId(input.jobId)
+
+    const [again] = await db
+        .select({ acpStatus: agentJob.acpStatus })
+        .from(agentJob)
+        .where(eq(agentJob.id, input.jobId))
+        .limit(1)
+
+    const st = again?.acpStatus?.toLowerCase() ?? ""
+    if (st === "rejected" || st === "expired") {
+        await db
+            .update(agentJob)
+            .set({
+                status: st === "expired" ? "expired" : "rejected",
+            })
+            .where(eq(agentJob.id, input.jobId))
+        return { ok: true as const }
+    }
+
+    return {
+        ok: false as const,
+        error:
+            "Send reject (or wait for expiry) on the Agentic Commerce contract on Kite Testnet for this job, then call job_sync_chain.",
+    }
+}
+
+export const getJobForViewer = async (input: {
+    viewerUserId: string
+    jobId: string
+}) => {
+    const job = await getAgentJobById(input.jobId)
+    if (!job) {
+        return { ok: false as const, error: "Job not found" as const }
+    }
+
+    const canSeeDelivery = canViewerAccessJobDelivery(
+        input.viewerUserId,
+        job.clientUserId,
+        job.providerUserId
+    )
+
+    if (!canSeeDelivery) {
         return {
-            ok: false as const,
-            error: "Only open jobs can be cancelled",
+            ok: true as const,
+            job: {
+                ...job,
+                deliveryPayload: null,
+                submittedAt: null,
+            },
         }
     }
 
-    await db
-        .update(agentJob)
-        .set({ status: "cancelled" })
-        .where(eq(agentJob.id, input.jobId))
+    const hideFromClientUntilSubmit = shouldHideDeliveryFromClientUntilOnChainSubmit(
+        {
+            viewerUserId: input.viewerUserId,
+            clientUserId: job.clientUserId,
+            acpJobId: job.acpJobId,
+            acpStatus: job.acpStatus,
+        }
+    )
 
-    return { ok: true as const }
+    if (hideFromClientUntilSubmit) {
+        return {
+            ok: true as const,
+            job: {
+                ...job,
+                deliveryPayload: null,
+                submittedAt: null,
+            },
+        }
+    }
+
+    return { ok: true as const, job }
 }
+
+export const listMyPostedJobs = async (userId: string, limit = 30) => {
+    const rows = await db
+        .select({
+            id: agentJob.id,
+            title: agentJob.title,
+            status: agentJob.status,
+            requiredModelId: agentJob.requiredModelId,
+            acpBudget: agentJob.acpBudget,
+            createdAt: agentJob.createdAt,
+        })
+        .from(agentJob)
+        .where(eq(agentJob.clientUserId, userId))
+        .orderBy(desc(agentJob.createdAt))
+        .limit(limit)
+
+    return rows.map((r) => ({
+        ...r,
+        budgetAmount: formatUsdtWei(r.acpBudget ?? "0"),
+        budgetCurrency: "USDT" as const,
+    }))
+}
+
+export const listMyBids = async (userId: string, limit = 30) => {
+    return db
+        .select({
+            bidId: agentJobBid.id,
+            jobId: agentJobBid.jobId,
+            amount: agentJobBid.amount,
+            currency: agentJobBid.currency,
+            bidStatus: agentJobBid.status,
+            jobTitle: agentJob.title,
+            jobStatus: agentJob.status,
+            createdAt: agentJobBid.createdAt,
+        })
+        .from(agentJobBid)
+        .innerJoin(agentJob, eq(agentJobBid.jobId, agentJob.id))
+        .where(eq(agentJobBid.providerUserId, userId))
+        .orderBy(desc(agentJobBid.createdAt))
+        .limit(limit)
+}
+
+export const getBidStatusForUser = async (input: {
+    userId: string
+    jobId?: string
+}) => {
+    if (input.jobId) {
+        const bids = await db
+            .select({
+                bidId: agentJobBid.id,
+                jobId: agentJobBid.jobId,
+                amount: agentJobBid.amount,
+                bidStatus: agentJobBid.status,
+                jobTitle: agentJob.title,
+                jobStatus: agentJob.status,
+            })
+            .from(agentJobBid)
+            .innerJoin(agentJob, eq(agentJobBid.jobId, agentJob.id))
+            .where(
+                and(
+                    eq(agentJobBid.providerUserId, input.userId),
+                    eq(agentJobBid.jobId, input.jobId)
+                )
+            )
+        return bids
+    }
+
+    return listMyBids(input.userId, 20)
+}
+
+export const completeJobAsClient = confirmJobCompletion
 
 export const updateBidAmount = async (input: {
     userId: string
@@ -784,11 +1153,17 @@ export const updateBidAmount = async (input: {
     if (!bid) {
         return { ok: false as const, error: "Bid not found for this job" }
     }
-    if (bid.bidderUserId !== input.userId) {
-        return { ok: false as const, error: "Only the bidder can update this bid" }
+    if (bid.providerUserId !== input.userId) {
+        return {
+            ok: false as const,
+            error: "Only the bidder can update this bid",
+        }
     }
     if (bid.status !== "pending") {
-        return { ok: false as const, error: "Only pending bids can be updated" }
+        return {
+            ok: false as const,
+            error: "Only pending bids can be updated",
+        }
     }
 
     const [job] = await db
@@ -815,202 +1190,4 @@ export const updateBidAmount = async (input: {
         .where(eq(agentJobBid.id, input.bidId))
 
     return { ok: true as const }
-}
-
-export const getJobForViewer = async (input: {
-    viewerUserId: string
-    jobId: string
-}) => {
-    const job = await getAgentJobById(input.jobId)
-    if (!job) {
-        return { ok: false as const, error: "Job not found" as const }
-    }
-
-    const canSeeDelivery = canViewerAccessJobDelivery(
-        input.viewerUserId,
-        job.posterUserId,
-        job.assigneeUserId
-    )
-
-    if (!canSeeDelivery) {
-        return {
-            ok: true as const,
-            job: {
-                ...job,
-                deliveryPayload: null,
-                deliveredAt: null,
-            },
-        }
-    }
-
-    const hideForPayToView = shouldHideDeliveryFromPosterUntilPaid({
-        viewerUserId: input.viewerUserId,
-        posterUserId: job.posterUserId,
-        status: job.status,
-        paymentStatus: job.paymentStatus,
-    })
-
-    if (hideForPayToView) {
-        return {
-            ok: true as const,
-            job: {
-                ...job,
-                deliveryPayload: null,
-                deliveredAt: null,
-            },
-        }
-    }
-
-    return { ok: true as const, job }
-}
-
-export const getPayToViewPreviewForPoster = async (input: {
-    userId: string
-    jobId: string
-}): Promise<
-    | { ok: true; settled: true }
-    | {
-          ok: true
-          settled: false
-          paymentRequired: true
-          amount: string
-          currency: string
-          network: typeof X402_BASE_SEPOLIA_NETWORK
-          payPath: string
-      }
-    | { ok: false; error: string }
-> => {
-    const job = await getAgentJobById(input.jobId)
-    if (!job) {
-        return { ok: false, error: "Job not found" }
-    }
-    if (job.posterUserId !== input.userId) {
-        return { ok: false, error: "Only the poster can use pay-to-view" }
-    }
-    if (job.status !== "pending_review") {
-        return {
-            ok: false,
-            error: "Pay-to-view applies only while the job is pending review",
-        }
-    }
-    if (job.paymentStatus === "settled") {
-        return { ok: true, settled: true }
-    }
-    if (!job.acceptedBidId || job.assigneePayoutAddress == null) {
-        return {
-            ok: false,
-            error: "Job is missing accepted bid or assignee payout address",
-        }
-    }
-
-    const [bid] = await db
-        .select()
-        .from(agentJobBid)
-        .where(eq(agentJobBid.id, job.acceptedBidId))
-        .limit(1)
-
-    if (!bid) {
-        return { ok: false, error: "Accepted bid not found" }
-    }
-    if (bid.currency !== "USDC") {
-        return {
-            ok: false,
-            error: "Pay-to-view on Base Sepolia supports USDC bids only",
-        }
-    }
-
-    return {
-        ok: true,
-        settled: false,
-        paymentRequired: true,
-        amount: bid.amount.trim(),
-        currency: bid.currency,
-        network: X402_BASE_SEPOLIA_NETWORK,
-        payPath: `/api/marketplace/jobs/${input.jobId}/pay-to-view`,
-    }
-}
-
-export const markJobPaymentSettled = async (input: {
-    jobId: string
-    receipt?: Record<string, unknown> | null
-}) => {
-    await db
-        .update(agentJob)
-        .set({
-            paymentStatus: "settled",
-            paymentSettledAt: new Date(),
-            paymentReceipt: input.receipt ?? null,
-        })
-        .where(eq(agentJob.id, input.jobId))
-}
-
-export const completeJobAsPoster = async (input: {
-    userId: string
-    jobId: string
-}): Promise<{ ok: true } | { ok: false; error: string }> => {
-    return confirmJobCompletion(input)
-}
-
-export const listMyPostedJobs = async (userId: string, limit = 30) => {
-    return db
-        .select({
-            id: agentJob.id,
-            title: agentJob.title,
-            status: agentJob.status,
-            requiredModelId: agentJob.requiredModelId,
-            rewardAmount: agentJob.rewardAmount,
-            rewardCurrency: agentJob.rewardCurrency,
-            createdAt: agentJob.createdAt,
-        })
-        .from(agentJob)
-        .where(eq(agentJob.posterUserId, userId))
-        .orderBy(desc(agentJob.createdAt))
-        .limit(limit)
-}
-
-export const listMyBids = async (userId: string, limit = 30) => {
-    return db
-        .select({
-            bidId: agentJobBid.id,
-            jobId: agentJobBid.jobId,
-            amount: agentJobBid.amount,
-            currency: agentJobBid.currency,
-            bidStatus: agentJobBid.status,
-            jobTitle: agentJob.title,
-            jobStatus: agentJob.status,
-            createdAt: agentJobBid.createdAt,
-        })
-        .from(agentJobBid)
-        .innerJoin(agentJob, eq(agentJobBid.jobId, agentJob.id))
-        .where(eq(agentJobBid.bidderUserId, userId))
-        .orderBy(desc(agentJobBid.createdAt))
-        .limit(limit)
-}
-
-export const getBidStatusForUser = async (input: {
-    userId: string
-    jobId?: string
-}) => {
-    if (input.jobId) {
-        const bids = await db
-            .select({
-                bidId: agentJobBid.id,
-                jobId: agentJobBid.jobId,
-                amount: agentJobBid.amount,
-                bidStatus: agentJobBid.status,
-                jobTitle: agentJob.title,
-                jobStatus: agentJob.status,
-            })
-            .from(agentJobBid)
-            .innerJoin(agentJob, eq(agentJobBid.jobId, agentJob.id))
-            .where(
-                and(
-                    eq(agentJobBid.bidderUserId, input.userId),
-                    eq(agentJobBid.jobId, input.jobId)
-                )
-            )
-        return bids
-    }
-
-    return listMyBids(input.userId, 20)
 }

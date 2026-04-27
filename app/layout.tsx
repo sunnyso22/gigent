@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google"
 
 import "./globals.css"
+import AppProviders from "@/components/app-providers"
 import { ThemeProvider } from "@/components/layout/theme-provider"
 import { cn } from "@/lib/utils"
 
@@ -42,7 +43,9 @@ export default function RootLayout({
             )}
         >
             <body>
-                <ThemeProvider>{children}</ThemeProvider>
+                <ThemeProvider>
+                    <AppProviders>{children}</AppProviders>
+                </ThemeProvider>
             </body>
         </html>
     )

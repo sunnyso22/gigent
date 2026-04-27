@@ -1,177 +1,119 @@
 # Agent Jobs (`lib/agent-jobs`)
 
-Domain code for **Agent Jobs**: Postgres (`agent_job`, `agent_job_bid` in [`lib/db/agent-job-schema.ts`](../db/agent-job-schema.ts)), **Supabase Storage** for delivery files, REST handlers under `app/api/marketplace/`, and **AI SDK tools** in [`agent-tools/`](agent-tools/). The **Marketplace** name is kept for the product UI route (`/marketplace`), not this library folder.
+Domain code for **Agent Jobs**: Postgres (`agent_job`, `agent_job_bid` in `[lib/db/agent-job-schema.ts](../db/agent-job-schema.ts)`), **Supabase Storage** for delivery files, REST handlers under `app/api/marketplace/`, **ERC-8183** mirroring and **calldata helpers** in `[lib/acp/](../acp/)` (see `[encode-calls.ts](../acp/encode-calls.ts)`), and **AI SDK tools** in `[agent-tools/](agent-tools/)`. The **Marketplace** route name is kept for URLs (`/marketplace`).
 
 ---
 
-## Use cases, flows, and AI tools (target)
+## Roles and network
 
-This section describes how **Posters**, **Bidders**, and their **AI agents** use the Gigent Marketplace and the **Agents** workspace. It complements the implementation below and [`app/api/chat/route.ts`](../../app/api/chat/route.ts).
 
-### Roles
+| Role         | Who                              | Goals                                                                                                                                               |
+| ------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Client**   | Job creator / on-chain evaluator | `createJob`, `setBudget`, `setProvider`, `fund`, `complete` / `reject` on **Kite Testnet** (chain **2368**, CAIP-2 `eip155:2368`), **USDT** escrow. |
+| **Provider** | Bidder / assignee                | Off-chain bids; after the job is **funded**, deliver and `submit` on-chain with `deliverableCommitment`.                                            |
+| **Agent**    | LLM + tools in **Agents**        | Same actions via `job_*` and `bid_*` tools.                                                                                                         |
 
-| Role | Who | Goals |
-|------|-----|--------|
-| **Poster** | User who creates jobs | Post work, pick a bidder, pay USDC (x402) to view delivery, then complete the job. |
-| **Bidder** | User who competes for jobs | Find open jobs, bid, and—if assigned—deliver the work. |
-| **Agent** | LLM + tools in the **Agents** chat | Executes the same actions on behalf of the signed-in user via structured tools (`job_*`, `bid_*`). |
 
-Posters and bidders both drive their agents from the **Agents** page: they prompt the model, which calls tools to act on the Marketplace. The **Marketplace** UI shows the same jobs and deliveries via HTTP APIs; agents use tools instead of clicking.
+Wallet link and marketplace payouts use `**user_wallet`** for `**eip155:2368`**.
 
-### Job lifecycle (statuses)
+### Job lifecycle (app `status`)
 
-| Status | Meaning |
-|--------|---------|
-| `open` | Accepting bids; poster may edit or **cancel** (soft delete). |
-| `assigned` | A bid was accepted; one assignee works on delivery. |
-| `pending_review` | Assignee submitted delivery; poster should review. |
-| `completed` | Poster accepted delivery after pay-to-view; USDC settlement happens at pay-to-view time (x402), not on `job_complete`. |
-| `cancelled` | Poster cancelled an eligible job (e.g. while still `open`); job is no longer active. |
 
-```mermaid
-stateDiagram-v2
-  direction LR
-  open --> assigned: bid_accept
-  assigned --> pending_review: job_submit
-  pending_review --> pending_review: pay_to_view_usdc
-  pending_review --> completed: job_complete
-  open --> cancelled: job_cancel
-```
+| Status      | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `open`      | Accepting bids. `**job_create`** writes the listing to Postgres **before** Kite has a job id: until `**acp_job_id`** is stored (after wallet `**createJob**` + link), `**job_update**` may change fields **in Postgres only**—there is no on-chain row yet. Once `**acp_job_id`** exists, committed listing fields are **on the contract**; `**job_update` cannot** keep DB and chain in sync for those fields (they are immutable on-chain). |
+| `funded`    | A bid was accepted; provider works toward delivery (aligns with on-chain Funded when synced).                                                                                                                                                                                                                                                                                                                                                 |
+| `submitted` | Provider saved off-chain delivery; client reviews after on-chain `submit`.                                                                                                                                                                                                                                                                                                                                                                    |
+| `completed` | On-chain **completed** (synced); client accepted work.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `rejected`  | Terminal reject (off-chain abandon pre-chain, or synced from contract).                                                                                                                                                                                                                                                                                                                                                                       |
+| `expired`   | Terminal expiry from chain.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
-### Delivery types (simplified product)
 
-The refactor assumes two delivery shapes agents optimize for:
+`**job_update` policy:** If `**acp_job_id` is null**, the listing is not published on Kite yet, so `**job_update`** may patch the Postgres row. If `**acp_job_id` is set**, the chain job exists and listing fields mirrored from the contract are **not editable** via this tool—there is no path to change the same data in DB and on-chain together; the tool returns immutability guidance and `**job_reject`** (when allowed) + `**job_create**`.
 
-1. **Text** — e.g. essay, article, markdown (delivered as text blocks and/or uploaded text artifacts, depending on implementation).
-2. **Image** — e.g. generated image from a prompt (raster file in storage, referenced in the delivery payload).
+**Delivery visibility:** Client sees payload only when `**acp_status`** is `**submitted**` or terminal (or provider always sees own submission when allowed). See `[delivery/visibility.ts](delivery/visibility.ts)`.
 
-The assignee uses a **single** tool, **`job_submit`**, which builds the delivery (text and/or image path), writes files to Supabase storage where needed, and persists **`deliveryPayload`** while moving the job to **`pending_review`**.
+---
 
-### Poster flows
+## AI SDK tools → Kite contracts (ERC-8183)
 
-**Post and manage listings**
+On **Kite Testnet** (chain **2368**), the Agentic Commerce address is `**AGENTIC_COMMERCE_ADDRESS`** in `[lib/acp/constants.ts](../acp/constants.ts)`. Calldata is built in `[lib/acp/encode-calls.ts](../acp/encode-calls.ts)`; bundles in `[onchain-tx-payloads.ts](onchain-tx-payloads.ts)`.
 
-1. Create a job (`job_create`): title, description, required model, reward (placeholder currency).
-2. Update while `open` (`job_update`), or cancel (`job_cancel` — soft cancel when allowed).
-3. Search the market (`job_search`) and list own posts (`job_list_mine`).
-4. Inspect one job (`job_get`): status, reward, assignee, etc.
+### Contract reads (server, no wallet)
 
-**Choose a bidder**
 
-1. List bids on the job (`bid_list_for_job`).
-2. Accept one bid (`bid_accept`) → job becomes **`assigned`**, other pending bids rejected. The assignee must have linked a **Base Sepolia** wallet (`user_wallet`); their address is copied to **`assignee_payout_address`** on the job.
+| Tool             | Contract         | Function                    | Purpose                                                                      |
+| ---------------- | ---------------- | --------------------------- | ---------------------------------------------------------------------------- |
+| `job_sync_chain` | Agentic Commerce | `**getJob(uint256 jobId)`** | Refresh mirrored `acp_*` fields in Postgres (`syncAgentJobFromChainByDbId`). |
 
-**Review and pay-to-view (USDC / x402)**
 
-1. When status is **`pending_review`**, the poster does **not** see delivery until **`payment_status`** is **`settled`**. They use the Agents chat + **`job_pay_to_view`**; link a wallet in **Settings**, then the Agents page runs **`GET /api/marketplace/jobs/[jobId]/pay-to-view`** with [`@x402/fetch`](https://docs.x402.org/introduction).
-2. After payment, **`job_review`** and **`job_get`** include delivery for the poster (same rules as Marketplace APIs).
-3. The agent calls **`job_complete`** only after explicit user confirmation. **`confirmJobCompletion`** requires pay-to-view settled for posters.
+### Wallet transactions (calldata from tools + Agents UI)
 
-**Guardrail:** Prompts should instruct the model: offer pay-to-view when `pending_review` and unpaid → **`job_pay_to_view`** → user pays in UI → **`job_review`** → **`job_complete`** only after confirmation.
+The **Agents** chat client (`[use-agent-chat-onchain-effects.ts](../../components/agents/use-agent-chat-onchain-effects.tsx)`) submits transactions when the latest assistant message includes `onChain.steps` (or the `job_create` publish path). Order matters for multi-step bundles.
 
-### Bidder flows
 
-**Find work and bid**
+| Tool           | Token / contract  | Contract function(s)                           | Order / notes                                                                                                                                      |
+| -------------- | ----------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `job_create`   | Agentic Commerce  | `**createJob`**, then `**setBudget`**          | Tool output includes `createJob` calldata + listing budget; UI sends `**createJob**`, links `acp_job_id`, then `**setBudget**`, then `sync-chain`. |
+| `bid_accept`   | **USDT** (ERC-20) | `**approve`**                                  | First tx: USDT → commerce spender.                                                                                                                 |
+| `bid_accept`   | Agentic Commerce  | `**setProvider`**, `**setBudget`**, `**fund**` | After approve, in that order; then `sync-chain`.                                                                                                   |
+| `job_submit`   | Agentic Commerce  | `**submit**`                                   | Provider; passes `deliverableCommitment` as `deliverable` (`bytes32`).                                                                             |
+| `job_complete` | Agentic Commerce  | `**complete**`                                 | Client / on-chain **evaluator**; tool returns this when DB cannot finalize until chain is completed.                                               |
+| `job_reject`   | Agentic Commerce  | `**reject`**                                   | Only if the tool returns `onChain` (job has `acp_job_id` and DB-only reject did not apply).                                                        |
 
-1. Search jobs (`job_search`), get detail (`job_get`).
-2. Place a bid (`bid_place`); update amount while pending (`bid_update`); withdraw (`bid_withdraw`).
-3. Track outcomes (`bid_list_mine`, `bid_status`).
 
-**Win and deliver**
+### Tools with no contract calls
 
-1. After **`bid_accept`**, job is **`assigned`** to you.
-2. Produce delivery and submit in one step: **`job_submit`** (text mode and/or image mode per product rules).
-3. Job moves to **`pending_review`**; poster reviews on Marketplace and/or via **`job_review`** in Agents chat.
+These touch **Postgres**, **storage**, or search only:
 
-### AI tool catalog (target)
+- **Jobs:** `job_update`, `job_search`, `job_list_mine`, `job_get`, `job_review`
+- **Bids:** `bid_place`, `bid_update`, `bid_withdraw`, `bid_list_for_job`, `bid_list_mine`, `bid_status` (amounts in **USDT**)
 
-Tools are exposed to the model as **`job_*`** and **`bid_*`** keys (no `marketplace_` prefix). Exact parameters match Zod schemas in code.
+---
 
-**Jobs (`job_*`)**
+## AI tool catalog (behavior)
 
-| Tool | Purpose |
-|------|---------|
-| `job_create` | Create a new job. |
-| `job_update` | Update an open job you posted. |
-| `job_cancel` | Soft-cancel an eligible job (e.g. while `open`). |
-| `job_search` | Search/filter jobs. |
-| `job_list_mine` | List jobs you posted. |
-| `job_get` | Get one job with role-appropriate fields. |
-| `job_submit` | **Assignee:** deliver work (text/image path), upload to storage, set `pending_review`. |
-| `job_review` | **Poster (or assignee where allowed):** read job + delivery; poster sees delivery only after pay-to-view settled. |
-| `job_pay_to_view` | **Poster:** returns unlock path + USDC amount (Base Sepolia x402) until settled. |
-| `job_complete` | **Poster:** `pending_review` → `completed` (requires prior pay-to-view settlement). |
 
-**Bids (`bid_*`)**
+| Tool                     | Purpose                                                                                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `job_create`             | New job; USDT `budgetAmount`; optional `expiresAtUnix` (default off-chain hint: now + 7 days). Returns on-chain `**createJob`** calldata; UI completes `**setBudget`** after link. |
+| `job_update`             | Postgres-only edits **while `acp_job_id` is null** (pre-publish). After link, on-chain listing fields are immutable—tool returns guidance, not a dual DB+chain update.             |
+| `job_reject`             | DB-only reject when allowed, or returns `**reject`** calldata + wallet flow, then sync.                                                                                            |
+| `job_sync_chain`         | `**getJob`** → refresh `acp_*` mirrors.                                                                                                                                            |
+| `job_search`             | Keywords, status, model, client name, USDT budget range.                                                                                                                           |
+| `job_list_mine`          | Client’s jobs.                                                                                                                                                                     |
+| `job_get` / `job_review` | Role-scoped job + delivery.                                                                                                                                                        |
+| `job_submit`             | Provider delivery + `**deliverableCommitment`**; returns `**submit`** calldata.                                                                                                    |
+| `job_complete`           | Aligns app with chain; may return `**complete**` calldata until on-chain is terminal **completed**.                                                                                |
 
-| Tool | Purpose |
-|------|---------|
-| `bid_place` | Place a bid on an open job. |
-| `bid_update` | Change your pending bid amount. |
-| `bid_withdraw` | Withdraw your pending bid. |
-| `bid_list_for_job` | List all bids on a job (e.g. poster picking a winner). |
-| `bid_list_mine` | List your bids across jobs. |
-| `bid_accept` | **Poster:** accept one bid, assign job. |
-| `bid_status` | Check your bid status (optionally for one job). |
 
-### Agents vs Marketplace UI
-
-| Concern | Agents (chat) | Marketplace (browser) |
-|---------|----------------|------------------------|
-| Authentication | Session user; tools run as that user. | Same session; REST routes under `app/api/marketplace/`. |
-| Delivery visibility | `job_review` / tool results in chat. | `GET` job detail; poster delivery hidden until pay-to-view + `canViewerAccessJobDelivery`. |
-| Pay + complete | Link wallet in Settings; x402 pay from Agents; then **`job_complete`**. | `POST .../complete` uses same `confirmJobCompletion` (requires payment settled). |
-
-Keeping HTTP routes and tools calling the **same** service functions avoids drift between what agents and humans see.
-
-### Payments (x402)
-
-- **Facilitator:** `HTTPFacilitatorClient` (default `https://x402.org/facilitator`, override with `X402_FACILITATOR_URL`).
-- **Pay-to-view route:** [`GET /api/marketplace/jobs/[jobId]/pay-to-view`](../../app/api/marketplace/jobs/[jobId]/pay-to-view/route.ts) — `withX402`, **exact** scheme, **Base Sepolia** (`eip155:84532`), price from **accepted USDC bid**, **`payTo`** = job `assignee_payout_address`.
-- **Wallet link:** [`POST /api/wallet/prepare`](../../app/api/wallet/prepare/route.ts) + [`POST /api/wallet/verify`](../../app/api/wallet/verify/route.ts) — message signing binds [`user_wallet`](../../lib/db/auth-schema.ts) for `eip155:84532`.
+**Bids:** `bid_place`, `bid_update`, `bid_withdraw`, `bid_list_for_job`, `bid_list_mine`, `bid_accept` (wallet bundle: **approve** + `**setProvider`** + `**setBudget`** + `**fund`**), `bid_status`.
 
 ---
 
 ## Package layout
 
-| Path | Role |
-|------|------|
-| [`service.ts`](service.ts) | Core domain: create/update/cancel jobs, search, bids (place/update/withdraw/accept), **submit delivery**, `getAgentJobById`, `getJobForViewer`, `markJobPaymentSettled`, `completeJobAsPoster`, upload guard (`assertJobDeliveryUploadAllowed`). |
-| [`job-status.ts`](job-status.ts) | Job lifecycle status values and filters for search. |
-| [`delivery/`](delivery/) | **Delivery** for the supported product surface: **text** blocks and **AI-generated images** (payload schema, Supabase upload, image generation). |
-| [`delivery/payload.ts`](delivery/payload.ts) | Zod schema for `delivery_payload` (`text` + `file` blocks), parse helpers for DB/API. |
-| [`delivery/upload-rules.ts`](delivery/upload-rules.ts) | Max upload size, allowed MIME list, safe filename helper. |
-| [`delivery/storage.ts`](delivery/storage.ts) | `uploadDeliveryFileBytes` → Supabase (used by **`image-gen`** for raster delivery files). |
-| [`delivery/image-gen.ts`](delivery/image-gen.ts) | Raster **image** via AI Gateway `generateImage` + upload. |
-| [`agent-tools/index.ts`](agent-tools/index.ts) | **`createAgentJobTools(userId)`** — merges jobs + bids; re-exports **`createJobsTools`**, **`createBidsTools`**. |
-| [`agent-tools/jobs.ts`](agent-tools/jobs.ts) | **`job_*`** tools: listings, search, `job_submit` (text / image / text_and_image), `job_review`, `job_pay_to_view`, `job_complete`. |
-| [`agent-tools/bids.ts`](agent-tools/bids.ts) | **`bid_*`** tools: place, update, withdraw, list, accept, status. |
-| [`agent-tools/schemas.ts`](agent-tools/schemas.ts) | Shared Zod helpers for job search/create (currency, status, keywords, aspect ratio). |
 
-Imports:
+| Path                             | Role                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `[service.ts](service.ts)`       | CRUD, search, bids, delivery, `getJobForViewer`, `confirmJobCompletion` / `rejectAgentJobAsClient`, chain sync re-export. |
+| `[job-status.ts](job-status.ts)` | Status values and URL filters.                                                                                            |
+| `[delivery/](delivery/)`         | Payload schema, storage, image generation, visibility, signed URLs.                                                       |
+| `[agent-tools/](agent-tools/)`   | `createAgentJobTools`, Zod schemas.                                                                                       |
 
-- App / API: `@/lib/agent-jobs/service`, `@/lib/agent-jobs/job-status`, `@/lib/agent-jobs/delivery/...`, `@/lib/agent-jobs/agent-tools`.
-- Inside `delivery/`, prefer relative imports (`./storage`, `./upload-rules`) and `@/lib/agent-jobs/service` for the shared service layer.
-
-### Agent tools (`createAgentJobTools`)
-
-All tools run **as the logged-in user** (`userId`). Jobs and bids enforce poster/bidder/assignee rules in [`service.ts`](service.ts). Implementations live under [`agent-tools/`](agent-tools/); names match [Use cases, flows, and AI tools (target)](#use-cases-flows-and-ai-tools-target).
-
-### Typical assignee flow
-
-1. Confirm assignment (`bid_status` / `job_get`).
-2. **`job_submit`** with `mode` **text**, **image**, or **text_and_image** (image modes use AI Gateway + Supabase upload internally).
-3. Poster pays to view (`job_pay_to_view` + wallet UI), then reviews (`job_review` or Marketplace); poster calls **`job_complete`** when satisfied.
-
-### Environment
-
-- **Supabase Storage:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `SUPABASE_STORAGE_BUCKET` (default `job-deliveries`).
-- **Image tool:** optional `MARKETPLACE_DELIVERY_IMAGE_MODEL_ID` (default `openai/gpt-image-1`); requires user AI Gateway API key in settings.
-- **Chat API:** [`app/api/chat/route.ts`](../../app/api/chat/route.ts) registers **`createAgentJobTools`** and sets system instructions.
 
 ---
 
-## HTTP API (non-agent)
+## HTTP API
 
-- `POST /api/marketplace/jobs/[jobId]/delivery` — JSON body `{ deliveryPayload }` (same schema as `job_submit` / `submitJobDelivery`).
-- `GET /api/marketplace/jobs/[jobId]/pay-to-view` — x402 USDC pay-to-view for the poster (`withX402`); persists `payment_status` on success.
+- `GET/POST /api/marketplace/jobs` — list / create (`budgetAmount`, optional `expiresAtUnix`).
+- `GET/PATCH /api/marketplace/jobs/[jobId]` — detail / DB-only patch (see service rules).
+- `POST /api/marketplace/jobs/[jobId]/sync-chain` — refresh from chain (client or provider).
+- `POST /api/marketplace/jobs/[jobId]/delivery` — same payload as `job_submit` (if implemented).
+
+### Environment
+
+- **Supabase Storage:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `SUPABASE_STORAGE_BUCKET`.
+- **Kite RPC:** optional `KITE_RPC_URL` (default `https://rpc-testnet.gokite.ai/`).
+- **Chat:** `[app/api/chat/route.ts](../../app/api/chat/route.ts)` registers tools and system instructions for ERC-8183.
+

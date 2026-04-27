@@ -1,6 +1,7 @@
 import { tool } from "ai"
 import { z } from "zod"
 
+import { getAcceptBidOnChainBundle } from "@/lib/agent-jobs/onchain-tx-payloads"
 import {
     acceptBid,
     listBidsForJob,
@@ -13,7 +14,7 @@ import {
 
 export const createBidsTools = (userId: string) => ({
     bid_list_for_job: tool({
-        description: "List all bids on a job (poster reviewing offers).",
+        description: "List all bids on a job (client reviewing provider offers).",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const bids = await listBidsForJob(jobId)
@@ -21,7 +22,7 @@ export const createBidsTools = (userId: string) => ({
                 success: true as const,
                 bids: bids.map((b) => ({
                     id: b.id,
-                    bidderName: b.bidderName,
+                    providerName: b.providerName,
                     amount: `${b.amount} ${b.currency}`,
                     status: b.status,
                     createdAt:
@@ -33,10 +34,10 @@ export const createBidsTools = (userId: string) => ({
 
     bid_place: tool({
         description:
-            "Place a bid on an open job (positive decimal string, same currency as the job). One pending bid per job per user; use bid_update to change amount.",
+            "Place a bid on an open job (whole USDT string, e.g. \"50\"). One pending bid per job per user; use bid_update to change amount.",
         inputSchema: z.object({
             jobId: z.string().min(1),
-            amount: z.string().describe("Bid amount as a decimal string"),
+            amount: z.string().describe("Bid in whole USDT (e.g. \"50\")"),
         }),
         execute: async (input) => {
             const result = await placeBid({ userId, ...input })
@@ -57,7 +58,7 @@ export const createBidsTools = (userId: string) => ({
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
-            amount: z.string().describe("New bid amount as a decimal string"),
+            amount: z.string().describe("New bid in whole USDT"),
         }),
         execute: async (input) => {
             const result = await updateBidAmount({ userId, ...input })
@@ -86,7 +87,7 @@ export const createBidsTools = (userId: string) => ({
 
     bid_accept: tool({
         description:
-            "As poster: accept one bid. Job becomes assigned; other pending bids are rejected.",
+            "As client: accept one bid only after the job is published on Kite (acp_job_id). Updates DB to funded and returns onChain.steps: USDT approve, setProvider, setBudget, fund—then job_sync_chain.",
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
@@ -96,9 +97,22 @@ export const createBidsTools = (userId: string) => ({
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
+            const bundle = await getAcceptBidOnChainBundle({
+                userId,
+                jobId: input.jobId,
+            })
+            if (!bundle.ok) {
+                return {
+                    success: true as const,
+                    jobId: input.jobId,
+                    message: `Bid accepted in the app (funded). On-chain bundle unavailable: ${bundle.error}`,
+                }
+            }
             return {
                 success: true as const,
-                message: "Bid accepted; job assigned.",
+                jobId: input.jobId,
+                onChain: bundle.bundle,
+                message: `Bid accepted in the app. Confirm ${bundle.bundle.steps.length} wallet transactions on Kite (approve USDT, setProvider, setBudget, fund), then use job_sync_chain.`,
             }
         },
     }),

@@ -4,12 +4,12 @@ import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
 import {
     canViewerAccessJobDelivery,
-    shouldHideDeliveryFromPosterUntilPaid,
+    shouldHideDeliveryFromClientUntilOnChainSubmit,
 } from "@/lib/agent-jobs/delivery/visibility"
 import {
     getAgentJobById,
     listBidsForJob,
-    updateAgentJobAsPoster,
+    updateAgentJobAsClient,
 } from "@/lib/agent-jobs/service"
 
 type RouteParams = { params: Promise<{ jobId: string }> }
@@ -27,8 +27,8 @@ export const GET = async (_req: Request, { params }: RouteParams) => {
     ])
     const canViewDelivery = canViewerAccessJobDelivery(
         session?.user?.id,
-        job.posterUserId,
-        job.assigneeUserId
+        job.clientUserId,
+        job.providerUserId
     )
 
     let jobResponse = canViewDelivery
@@ -36,23 +36,23 @@ export const GET = async (_req: Request, { params }: RouteParams) => {
         : {
               ...job,
               deliveryPayload: null,
-              deliveredAt: null,
+              submittedAt: null,
           }
 
     if (
         canViewDelivery &&
         session?.user?.id &&
-        shouldHideDeliveryFromPosterUntilPaid({
+        shouldHideDeliveryFromClientUntilOnChainSubmit({
             viewerUserId: session.user.id,
-            posterUserId: job.posterUserId,
-            status: job.status,
-            paymentStatus: job.paymentStatus,
+            clientUserId: job.clientUserId,
+            acpJobId: job.acpJobId,
+            acpStatus: job.acpStatus,
         })
     ) {
         jobResponse = {
             ...job,
             deliveryPayload: null,
-            deliveredAt: null,
+            submittedAt: null,
         }
     }
 
@@ -71,8 +71,7 @@ export const PATCH = async (req: Request, { params }: RouteParams) => {
         title?: string
         description?: string
         requiredModelId?: string
-        rewardAmount?: string
-        rewardCurrency?: string
+        budgetAmount?: string
     }
 
     try {
@@ -81,27 +80,34 @@ export const PATCH = async (req: Request, { params }: RouteParams) => {
         return jsonError(400, "Invalid JSON")
     }
 
-    const result = await updateAgentJobAsPoster({
+    const result = await updateAgentJobAsClient({
         userId: session.user.id,
         jobId,
         title: body.title,
         description: body.description,
         requiredModelId: body.requiredModelId,
-        rewardAmount: body.rewardAmount,
-        rewardCurrency: body.rewardCurrency,
+        budgetAmount: body.budgetAmount,
     })
 
     if (!result.ok) {
         const status =
             result.error === "Job not found"
                 ? 404
-                : result.error === "Only the poster can update this job" ||
+                : result.error === "Only the client can update this job" ||
                     result.error ===
-                        "Only open jobs can be edited (cancel or complete flow first)"
+                        "Only open jobs can be edited before an on-chain job exists"
                   ? 403
                   : 400
         return jsonError(status, result.error)
     }
 
-    return NextResponse.json({ ok: true })
+    if (!result.applied) {
+        return NextResponse.json({
+            ok: true as const,
+            applied: false as const,
+            guidance: result.guidance,
+        })
+    }
+
+    return NextResponse.json({ ok: true as const, applied: true as const })
 }

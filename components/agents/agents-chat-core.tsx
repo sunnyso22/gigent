@@ -9,7 +9,6 @@ import {
     IconPaperclip,
     IconPlayerStop,
     IconSend,
-    IconSparkles,
 } from "@tabler/icons-react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import {
@@ -33,8 +32,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { getMessageTextForDisplay } from "@/components/agents/agents-chat-helpers"
-import { useAgentsPayToViewOrchestration } from "@/components/agents/use-agents-pay-to-view-orchestration"
+import useAgentChatOnchainEffects from "@/components/agents/use-agent-chat-onchain-effects"
 import { KeySavedBanner } from "@/components/agents/key-saved-banner"
+import { extractJobCreateOnChainFromMessages } from "@/lib/agents/extract-job-create-onchain"
+import { extractLatestOnChainStepsFromMessages } from "@/lib/agents/extract-onchain-steps"
 
 /** Updated in an effect so `DefaultChatTransport` can read the latest id without stale closures. */
 let latestOutboundChatModelId: ChatModelId = DEFAULT_CHAT_MODEL_ID
@@ -88,14 +89,6 @@ export const AgentsChatCore = ({
         transport,
     })
 
-    const { fallback: payToViewFallback } = useAgentsPayToViewOrchestration({
-            messages,
-            status,
-            conversationLoading,
-            hasApiKey,
-            sendMessage,
-        })
-
     const [draft, setDraft] = React.useState("")
     const [noKeyMessage, setNoKeyMessage] = React.useState<string | null>(null)
 
@@ -140,6 +133,18 @@ export const AgentsChatCore = ({
     React.useEffect(() => {
         latestOutboundChatModelId = selectedModelId
     }, [selectedModelId])
+
+    const jobCreateOnChain = React.useMemo(
+        () => extractJobCreateOnChainFromMessages(messages),
+        [messages]
+    )
+
+    const onChainSteps = React.useMemo(
+        () => extractLatestOnChainStepsFromMessages(messages),
+        [messages]
+    )
+
+    useAgentChatOnchainEffects(jobCreateOnChain, onChainSteps)
 
     React.useEffect(() => {
         if (!hasApiKey) {
@@ -221,10 +226,7 @@ export const AgentsChatCore = ({
                         </Button>
                         <div className="flex min-w-0 flex-col">
                             <span className="truncate font-heading text-sm">
-                                {firstUserSnippet ?? "New conversation"}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground">
-                                AI Gateway
+                                {firstUserSnippet ?? "New Agent"}
                             </span>
                         </div>
                     </div>
@@ -242,23 +244,25 @@ export const AgentsChatCore = ({
                     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
                         {messages.length === 0 ? (
                             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                                <div className="flex size-12 items-center justify-center rounded-none border border-border bg-card">
-                                    <IconSparkles className="text-primary" />
-                                </div>
                                 <div className="flex flex-col gap-1">
                                     <p className="font-heading text-sm">
-                                        Start your agent
+                                        How to start your agents?
                                     </p>
-                                    <p className="max-w-sm text-xs text-muted-foreground">
-                                        Add your API key in{" "}
-                                        <Link
-                                            href="/settings"
-                                            className="text-foreground underline underline-offset-2"
-                                        >
-                                            Settings
-                                        </Link>{" "}
-                                        to get started.
-                                    </p>
+                                    <div className="max-w-sm text-xs text-muted-foreground">
+                                        <ol className="list-inside list-decimal text-left">
+                                            <li>
+                                                Go to{" "}
+                                                <Link
+                                                    href="/settings"
+                                                    className="text-foreground underline underline-offset-2"
+                                                >
+                                                    Settings
+                                                </Link>
+                                            </li>
+                                            <li>Add your API key</li>
+                                            <li>Connect your wallet</li>
+                                        </ol>
+                                    </div>
                                 </div>
                             </div>
                         ) : (
@@ -307,15 +311,6 @@ export const AgentsChatCore = ({
                                                     showToolLogs,
                                                 })}
                                             </p>
-                                            {m.role === "assistant" &&
-                                            payToViewFallback &&
-                                            payToViewFallback.assistantMessageId ===
-                                                m.id &&
-                                            payToViewFallback.lastError ? (
-                                                <p className="mt-2 border-t border-border pt-2 text-[10px] text-destructive">
-                                                    {payToViewFallback.lastError}
-                                                </p>
-                                            ) : null}
                                         </div>
                                     </div>
                                 ))

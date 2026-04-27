@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1777285966684,
+      "tag": "0000_add_acp_expires_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777285997061,
+      "tag": "0001_outgoing_master_chief",
+      "breakpoints": true
+    }
+  ]
+}

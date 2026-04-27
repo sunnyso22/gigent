@@ -27,10 +27,11 @@ type MarketplaceFiltersProps = {
 const STATUS_LABEL: Record<StatusFilter, string> = {
     all: "All statuses",
     open: "Open",
-    assigned: "Assigned",
-    pending_review: "Pending review",
+    funded: "Funded",
+    submitted: "Submitted",
     completed: "Completed",
-    cancelled: "Cancelled",
+    rejected: "Rejected",
+    expired: "Expired",
 }
 
 const buildPath = (q: string, status: StatusFilter) => {
@@ -100,7 +101,7 @@ export const MarketplaceFilters = ({
                 type="search"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                placeholder="Title, description, model id, or poster name"
+                placeholder="Title, description, model id, or client name"
                 className="h-9 flex-1 text-xs"
                 autoComplete="off"
             />

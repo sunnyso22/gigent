@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { IconLogout, IconMoon, IconSettings, IconSun } from "@tabler/icons-react"
 import { useTheme } from "next-themes"
+import { useDisconnect } from "wagmi"
 
 import { UserAvatarDisplay } from "./session-avatar"
 import {
@@ -72,8 +73,14 @@ export const UserAccountMenu = ({
     walletAddress,
 }: UserAccountMenuProps) => {
     const pathname = usePathname()
+    const { disconnectAsync } = useDisconnect()
 
     const signOutAndLeaveProtectedRoute = async () => {
+        try {
+            await disconnectAsync()
+        } catch {
+            // proceed with logout even if the wallet is already disconnected
+        }
         await authClient.signOut()
         if (pathname && requiresSessionPath(pathname)) {
             const login = new URL("/login", window.location.origin)

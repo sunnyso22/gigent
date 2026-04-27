@@ -22,7 +22,7 @@ export const user = pgTable("user", {
         .notNull(),
 })
 
-/** One verified EVM address per app user per chain (e.g. Base Sepolia for x402 MVP). */
+/** One verified EVM address per app user per chain (e.g. Kite Testnet eip155:2368). */
 export const userWallet = pgTable(
     "user_wallet",
     {

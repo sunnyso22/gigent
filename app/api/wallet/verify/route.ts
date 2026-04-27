@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { NextResponse } from "next/server"
 import { getAddress, verifyMessage } from "viem"
 
@@ -6,7 +6,7 @@ import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
 import { userWallet, walletLinkChallenge } from "@/lib/db/schema"
 import { db } from "@/lib/db"
-import { X402_BASE_SEPOLIA_NETWORK } from "@/lib/wallet/constants"
+import { KITE_CAIP2_NETWORK } from "@/lib/wallet/constants"
 import { buildWalletLinkMessage } from "@/lib/wallet/link-message"
 
 type Body = {
@@ -61,27 +61,65 @@ export const POST = async (req: Request) => {
 
     const address = getAddress(rawAddress)
 
-    await db
-        .insert(userWallet)
-        .values({
-            userId: session.user.id,
-            chainId: X402_BASE_SEPOLIA_NETWORK,
-            address,
-            verifiedAt: new Date(),
-            updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-            target: [userWallet.userId, userWallet.chainId],
-            set: {
+    const [existingOwner] = await db
+        .select({ userId: userWallet.userId })
+        .from(userWallet)
+        .where(
+            and(
+                eq(userWallet.chainId, KITE_CAIP2_NETWORK),
+                eq(userWallet.address, address)
+            )
+        )
+        .limit(1)
+
+    if (existingOwner && existingOwner.userId !== session.user.id) {
+        return jsonError(
+            409,
+            "This wallet address is already linked to a different Gigent account. Use another address or sign in as that account."
+        )
+    }
+
+    try {
+        await db
+            .insert(userWallet)
+            .values({
+                userId: session.user.id,
+                chainId: KITE_CAIP2_NETWORK,
                 address,
                 verifiedAt: new Date(),
                 updatedAt: new Date(),
-            },
-        })
+            })
+            .onConflictDoUpdate({
+                target: [userWallet.userId, userWallet.chainId],
+                set: {
+                    address,
+                    verifiedAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            })
+    } catch (e: unknown) {
+        if (isPostgresUniqueViolation(e)) {
+            return jsonError(
+                409,
+                "This wallet address is already linked to a different Gigent account. Use another address or sign in as that account."
+            )
+        }
+        throw e
+    }
 
     await db
         .delete(walletLinkChallenge)
         .where(eq(walletLinkChallenge.userId, session.user.id))
 
     return NextResponse.json({ ok: true as const, address })
+}
+
+const isPostgresUniqueViolation = (e: unknown): boolean => {
+    if (typeof e === "object" && e !== null && "code" in e) {
+        if ((e as { code: string }).code === "23505") return true
+    }
+    if (typeof e === "object" && e !== null && "cause" in e) {
+        return isPostgresUniqueViolation((e as { cause: unknown }).cause)
+    }
+    return false
 }

@@ -5,7 +5,7 @@ import { unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
 import { userWallet } from "@/lib/db/schema"
 import { db } from "@/lib/db"
-import { X402_BASE_SEPOLIA_NETWORK } from "@/lib/wallet/constants"
+import { KITE_CAIP2_NETWORK } from "@/lib/wallet/constants"
 
 export const GET = async () => {
     const session = await getSession()
@@ -22,7 +22,7 @@ export const GET = async () => {
         .where(
             and(
                 eq(userWallet.userId, session.user.id),
-                eq(userWallet.chainId, X402_BASE_SEPOLIA_NETWORK)
+                eq(userWallet.chainId, KITE_CAIP2_NETWORK)
             )
         )
         .limit(1)

@@ -58,16 +58,22 @@ const Page = async ({ searchParams }: MarketplacePageProps) => {
                                         {j.title}
                                     </span>
                                     <span className="text-[10px] text-muted-foreground">
-                                        {j.rewardAmount} {j.rewardCurrency} ·{" "}
+                                        {j.budgetAmount} {j.budgetCurrency} ·{" "}
                                         {j.status}
+                                        {j.acpExpiresAt != null
+                                            ? ` · Expires ${j.acpExpiresAt.toLocaleDateString(
+                                                  undefined,
+                                                  { dateStyle: "medium" }
+                                              )}`
+                                            : ""}
                                     </span>
                                 </div>
                                 <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                                     {j.description}
                                 </p>
                                 <p className="mt-2 text-[10px] text-muted-foreground">
-                                    Model: {j.requiredModelId} · Poster:{" "}
-                                    {j.posterName}
+                                    Model: {j.requiredModelId} · Client:{" "}
+                                    {j.clientName}
                                 </p>
                             </Link>
                         </li>

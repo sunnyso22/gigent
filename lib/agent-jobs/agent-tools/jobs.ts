@@ -4,21 +4,28 @@ import { z } from "zod"
 import { generateDeliveryImageAndUpload } from "@/lib/agent-jobs/delivery/image-gen"
 import type { JobDeliveryPayload } from "@/lib/agent-jobs/delivery/payload"
 import {
-    cancelAgentJobAsPoster,
-    completeJobAsPoster,
+    getCompleteJobOnChainBundle,
+    getRejectJobOnChainBundle,
+    getSubmitDeliveryOnChainBundle,
+} from "@/lib/agent-jobs/onchain-tx-payloads"
+import {
+    completeJobAsClient,
     createAgentJob,
+    getCreateJobOnChainPayload,
     getJobForViewer,
-    getPayToViewPreviewForPoster,
     listMyPostedJobs,
+    rejectAgentJobAsClient,
     searchAgentJobs,
     submitJobDelivery,
+    syncAgentJobFromChainByDbId,
     trimOptional,
-    updateAgentJobAsPoster,
+    updateAgentJobAsClient,
+    JOB_ONCHAIN_IMMUTABLE_GUIDANCE,
 } from "@/lib/agent-jobs/service"
 
 import { parseAgentJobStatusFilter } from "@/lib/agent-jobs/job-status"
 
-import { keywordModeSchema, rewardCurrencySchema } from "./schemas"
+import { budgetAmountSchema, keywordModeSchema } from "./schemas"
 
 type GetJobForViewerResult = Awaited<ReturnType<typeof getJobForViewer>>
 type JobRow = Extract<GetJobForViewerResult, { ok: true }>["job"]
@@ -26,19 +33,23 @@ type JobRow = Extract<GetJobForViewerResult, { ok: true }>["job"]
 const serializeJobForTool = (job: JobRow) => ({
     ...job,
     createdAt: job.createdAt?.toISOString?.() ?? String(job.createdAt),
-    deliveredAt:
-        job.deliveredAt == null
+    submittedAt:
+        job.submittedAt == null
             ? null
-            : (job.deliveredAt?.toISOString?.() ?? String(job.deliveredAt)),
+            : (job.submittedAt?.toISOString?.() ?? String(job.submittedAt)),
     completedAt:
         job.completedAt == null
             ? null
             : (job.completedAt?.toISOString?.() ?? String(job.completedAt)),
-    paymentSettledAt:
-        job.paymentSettledAt == null
+    acpExpiresAt:
+        job.acpExpiresAt == null
             ? null
-            : (job.paymentSettledAt?.toISOString?.() ??
-              String(job.paymentSettledAt)),
+            : (job.acpExpiresAt?.toISOString?.() ?? String(job.acpExpiresAt)),
+    lastChainSyncAt:
+        job.lastChainSyncAt == null
+            ? null
+            : (job.lastChainSyncAt?.toISOString?.() ??
+              String(job.lastChainSyncAt)),
 })
 
 /** Flat object so JSON Schema root is `type: object` (Gateway rejects root `oneOf` from discriminated unions). */
@@ -84,53 +95,71 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job: title, description, required AI model id (e.g. openai/gpt-5), reward amount and currency (USDC or ETH). Reward is recorded only until payments exist.",
+            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a whole number (on-chain setBudget uses the same integer, e.g. 10 USDT → 10), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata; with a linked wallet in Settings, the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
         inputSchema: z.object({
             title: z.string().min(1),
             description: z.string().min(1),
             requiredModelId: z.string().min(1),
-            rewardAmount: z
-                .string()
-                .describe('Decimal string, e.g. "50" or "49.99"'),
-            rewardCurrency: rewardCurrencySchema,
+            budgetAmount: budgetAmountSchema,
+            expiresAtUnix: z
+                .number()
+                .int()
+                .positive()
+                .optional()
+                .describe(
+                    "Optional Unix timestamp (seconds) for on-chain expiredAt; server defaults to now + 7 days when omitted."
+                ),
         }),
         execute: async (input) => {
             const { id } = await createAgentJob({ userId, ...input })
+            const prep = await getCreateJobOnChainPayload({
+                userId,
+                jobId: id,
+            })
+            if (prep.ok) {
+                return {
+                    success: true as const,
+                    jobId: id,
+                    onChain: {
+                        chainId: prep.chainId,
+                        commerceAddress: prep.commerceAddress,
+                        createJobData: prep.createJobData,
+                        initialBudgetAmount: prep.initialBudgetAmount,
+                    },
+                    message: `Saved job ${id}. If your wallet is connected (Settings), confirm createJob then setBudget when the extension prompts; the app will link and sync.`,
+                }
+            }
             return {
                 success: true as const,
                 jobId: id,
-                message: `Created job ${id}`,
+                onChain: { error: prep.error },
+                message: `Saved job ${id} in the app only. On-chain: ${prep.error}`,
             }
         },
     }),
 
     job_update: tool({
         description:
-            "Update a job you posted. Only while status is open. Provide jobId and fields to change.",
+            "Client-only. Before an on-chain job exists (no acp_job_id), updates open listing fields in the database. After createJob, on-chain fields are immutable—this tool returns guidance to job_reject (when the chain allows) then job_create; do not imply the contract row was edited.",
         inputSchema: z
             .object({
                 jobId: z.string().min(1),
                 title: z.string().min(1).optional(),
                 description: z.string().min(1).optional(),
                 requiredModelId: z.string().min(1).optional(),
-                rewardAmount: z
-                    .string()
-                    .optional()
-                    .describe('Decimal string, e.g. "50" or "49.99"'),
-                rewardCurrency: rewardCurrencySchema.optional(),
+                budgetAmount: budgetAmountSchema.optional(),
             })
             .refine(
                 (v) =>
                     v.title !== undefined ||
                     v.description !== undefined ||
                     v.requiredModelId !== undefined ||
-                    v.rewardAmount !== undefined ||
-                    v.rewardCurrency !== undefined,
+                    v.budgetAmount !== undefined,
                 { message: "Provide at least one field to update" }
             ),
         execute: async (input) => {
             const { jobId, ...rest } = input
-            const result = await updateAgentJobAsPoster({
+            const result = await updateAgentJobAsClient({
                 userId,
                 jobId,
                 ...rest,
@@ -138,83 +167,103 @@ export const createJobsTools = (userId: string) => ({
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
-            return { success: true as const, message: `Updated job ${jobId}` }
-        },
-    }),
-
-    job_cancel: tool({
-        description:
-            "Cancel a job you posted while it is still open (soft cancel). Cannot cancel after a bid is accepted.",
-        inputSchema: z.object({ jobId: z.string().min(1) }),
-        execute: async ({ jobId }) => {
-            const result = await cancelAgentJobAsPoster({ userId, jobId })
-            if (!result.ok) {
-                return { success: false as const, error: result.error }
+            if (!result.applied) {
+                return {
+                    success: true as const,
+                    applied: false as const,
+                    guidance: result.guidance,
+                    reminder: JOB_ONCHAIN_IMMUTABLE_GUIDANCE,
+                }
             }
             return {
                 success: true as const,
-                message: `Job ${jobId} cancelled.`,
+                applied: true as const,
+                message: `Updated job ${jobId}`,
             }
+        },
+    }),
+
+    job_reject: tool({
+        description:
+            "Client: abandon an off-chain-only open job, or after sending reject on Kite Agentic Commerce, sync terminal rejected/expired state. If the chain is not yet rejected, the tool returns onChain.steps to run reject() from the wallet, then job_sync_chain.",
+        inputSchema: z.object({ jobId: z.string().min(1) }),
+        execute: async ({ jobId }) => {
+            const result = await rejectAgentJobAsClient({ userId, jobId })
+            if (result.ok) {
+                return {
+                    success: true as const,
+                    jobId,
+                    message: `Job ${jobId} marked rejected or sync completed.`,
+                }
+            }
+            const prep = await getRejectJobOnChainBundle({ userId, jobId })
+            if (prep.ok) {
+                return {
+                    success: false as const,
+                    jobId,
+                    error: result.error,
+                    onChain: prep.bundle,
+                }
+            }
+            return {
+                success: false as const,
+                jobId,
+                error: result.error,
+            }
+        },
+    }),
+
+    job_sync_chain: tool({
+        description:
+            "Refresh mirrored ERC-8183 fields (budget, status, expiry, addresses) from Kite via getJob for a job that already has acp_job_id.",
+        inputSchema: z.object({ jobId: z.string().min(1) }),
+        execute: async ({ jobId }) => {
+            const result = await syncAgentJobFromChainByDbId(jobId)
+            if (!result.ok) {
+                return { success: false as const, error: result.error }
+            }
+            return { success: true as const, message: `Synced job ${jobId}.` }
         },
     }),
 
     job_search: tool({
         description:
-            "Search jobs: filters for keywords, status (open = bidding; assigned = bid accepted), model id substring, poster name, reward range + currency. Omit filters for recent jobs.",
-        inputSchema: z
-            .object({
-                keywords: z.string().optional(),
-                keywordMode: keywordModeSchema.optional(),
-                status: z
-                    .unknown()
-                    .optional()
-                    .transform((v) => {
-                        if (v === undefined || v === null) {
-                            return undefined
-                        }
-                        if (v === "all") {
-                            return "all" as const
-                        }
-                        if (Array.isArray(v)) {
-                            const xs = v
-                                .filter(
-                                    (x): x is string => typeof x === "string"
-                                )
-                                .map((x) => parseAgentJobStatusFilter(x))
-                                .filter((s) => s !== "all")
-                            if (xs.length === 0) {
-                                return "all" as const
-                            }
-                            return xs.length === 1 ? xs[0]! : xs
-                        }
-                        if (typeof v !== "string") {
-                            return "all" as const
-                        }
-                        return parseAgentJobStatusFilter(v)
-                    }),
-                exactRequiredModelId: z.string().optional(),
-                modelContains: z.string().optional(),
-                posterNameContains: z.string().optional(),
-                minRewardAmount: z.string().optional(),
-                maxRewardAmount: z.string().optional(),
-                rewardCurrency: rewardCurrencySchema.optional(),
-                limit: z.number().int().min(1).max(50).optional(),
-            })
-            .refine(
-                (v) => {
-                    const hasR =
-                        (v.minRewardAmount?.trim() ?? "") !== "" ||
-                        (v.maxRewardAmount?.trim() ?? "") !== ""
-                    if (!hasR) {
-                        return true
+            "Search jobs: keywords, status, model id substring, client display name, USDT budget range. Omit filters for recent jobs.",
+        inputSchema: z.object({
+            keywords: z.string().optional(),
+            keywordMode: keywordModeSchema.optional(),
+            status: z
+                .unknown()
+                .optional()
+                .transform((v) => {
+                    if (v === undefined || v === null) {
+                        return undefined
                     }
-                    return v.rewardCurrency !== undefined
-                },
-                {
-                    message:
-                        "rewardCurrency is required when minRewardAmount or maxRewardAmount is set",
-                }
-            ),
+                    if (v === "all") {
+                        return "all" as const
+                    }
+                    if (Array.isArray(v)) {
+                        const xs = v
+                            .filter((x): x is string => typeof x === "string")
+                            .map((x) => parseAgentJobStatusFilter(x))
+                            .filter((s) => s !== "all")
+                        if (xs.length === 0) {
+                            return "all" as const
+                        }
+                        return xs.length === 1 ? xs[0]! : xs
+                    }
+                    if (typeof v !== "string") {
+                        return "all" as const
+                    }
+                    return parseAgentJobStatusFilter(v)
+                }),
+            exactRequiredModelId: z.string().optional(),
+            modelContains: z.string().optional(),
+            clientNameContains: z.string().optional(),
+            minBudgetAmount: z.string().optional(),
+            maxBudgetAmount: z.string().optional(),
+            limit: z.number().int().min(1).max(50).optional(),
+        }),
         execute: async (input) => {
             try {
                 const jobs = await searchAgentJobs({
@@ -225,10 +274,9 @@ export const createJobsTools = (userId: string) => ({
                         input.exactRequiredModelId
                     ),
                     modelContains: trimOptional(input.modelContains),
-                    posterNameContains: trimOptional(input.posterNameContains),
-                    minRewardAmount: trimOptional(input.minRewardAmount),
-                    maxRewardAmount: trimOptional(input.maxRewardAmount),
-                    rewardCurrency: input.rewardCurrency,
+                    clientNameContains: trimOptional(input.clientNameContains),
+                    minBudgetAmount: trimOptional(input.minBudgetAmount),
+                    maxBudgetAmount: trimOptional(input.maxBudgetAmount),
                     limit: input.limit,
                 })
                 return {
@@ -239,9 +287,9 @@ export const createJobsTools = (userId: string) => ({
                         title: j.title,
                         description: j.description,
                         requiredModelId: j.requiredModelId,
-                        reward: `${j.rewardAmount} ${j.rewardCurrency}`,
+                        budget: `${j.budgetAmount} ${j.budgetCurrency}`,
                         status: j.status,
-                        posterName: j.posterName,
+                        clientName: j.clientName,
                         createdAt:
                             j.createdAt?.toISOString?.() ?? String(j.createdAt),
                     })),
@@ -254,7 +302,7 @@ export const createJobsTools = (userId: string) => ({
     }),
 
     job_list_mine: tool({
-        description: "List jobs you posted.",
+        description: "List jobs you created as client.",
         inputSchema: z.object({}),
         execute: async () => {
             const jobs = await listMyPostedJobs(userId)
@@ -271,7 +319,7 @@ export const createJobsTools = (userId: string) => ({
 
     job_get: tool({
         description:
-            "Get one job by id with fields appropriate for your role. Status pending_review always means the assignee has already submitted delivery. As poster, the delivery payload may be hidden until x402 USDC pay-to-view is settled (check paymentStatus); after settled, delivery is visible. Assignee always sees their submitted delivery.",
+            "Get one job by id with fields for your role. App status submitted means the provider already saved off-chain delivery. Client sees delivery content only after on-chain status is submitted (or terminal); provider always sees their submission when allowed.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const result = await getJobForViewer({
@@ -290,7 +338,7 @@ export const createJobsTools = (userId: string) => ({
 
     job_review: tool({
         description:
-            "Read job details and delivery. pending_review means the assignee has already submitted—do not say they still need to submit. Poster: if payment is unsettled, delivery is hidden; after pay-to-view settles (wallet or automation message), call job_review anytime to read the full delivery. Assignee: sees their submission.",
+            "Read job details and delivery (same visibility rules as job_get). App status submitted means delivery was already saved off-chain—do not say the provider still needs to submit.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const result = await getJobForViewer({
@@ -307,45 +355,9 @@ export const createJobsTools = (userId: string) => ({
         },
     }),
 
-    job_pay_to_view: tool({
-        description:
-            "As the poster: for pending_review jobs (delivery already submitted by assignee), when pay-to-view is not settled returns paymentRequired + payPath (USDC, Base Sepolia). The Agents client then runs x402 payment (no separate pay banner). After payment settles, the UI may send an automation user message—then call job_review immediately. If already settled, returns settled: true.",
-        inputSchema: z.object({ jobId: z.string().min(1) }),
-        execute: async ({ jobId }) => {
-            const result = await getPayToViewPreviewForPoster({
-                userId,
-                jobId,
-            })
-            if (!result.ok) {
-                return { success: false as const, error: result.error }
-            }
-            if (result.settled) {
-                return {
-                    success: true as const,
-                    paymentRequired: false as const,
-                    settled: true as const,
-                    message:
-                        "Pay-to-view already settled. Delivery was submitted by the assignee; use job_review to read it anytime.",
-                }
-            }
-            return {
-                success: true as const,
-                paymentRequired: true as const,
-                settled: false as const,
-                jobId,
-                amount: result.amount,
-                currency: result.currency,
-                network: result.network,
-                payPath: result.payPath,
-                message:
-                    "Assignee has already submitted (pending_review). Link wallet in Settings if needed; the client will complete x402 payment next. After payment settles, call job_review to see delivery (or when the automation message says pay-to-view settled).",
-            }
-        },
-    }),
-
     job_submit: tool({
         description:
-            "As the assignee: submit final delivery in one step. Mode text = essay/article body; image = AI-generated image from prompt; text_and_image = both. Uploads to storage as needed. Sets status to pending_review (meaning submission is complete; poster must pay-to-view before seeing it).",
+            "As the assigned provider: upload final delivery (text / image / both). Saves delivery and deliverableCommitment in the app and returns onChain.steps for contract submit(); then job_sync_chain.",
         inputSchema: jobSubmitInputSchema,
         execute: async (input) => {
             let payload: JobDeliveryPayload
@@ -407,29 +419,58 @@ export const createJobsTools = (userId: string) => ({
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
+            const bundle = await getSubmitDeliveryOnChainBundle({
+                userId,
+                jobId: input.jobId,
+            })
+            if (!bundle.ok) {
+                return {
+                    success: true as const,
+                    jobId: input.jobId,
+                    deliverableCommitment: result.deliverableCommitment,
+                    message: `Delivery saved in the app. On-chain submit calldata unavailable: ${bundle.error}`,
+                }
+            }
             return {
                 success: true as const,
+                jobId: input.jobId,
+                deliverableCommitment: result.deliverableCommitment,
+                onChain: bundle.bundle,
                 message:
-                    "Delivery submitted. Job is pending_review—the assignee has finished submitting; the poster can read the delivery after pay-to-view (if required), using job_review.",
+                    "Delivery saved in the app. Confirm submit on Kite (wallet), then job_sync_chain.",
             }
         },
     }),
 
     job_complete: tool({
         description:
-            "As the poster: after you have read the delivery via job_review (pay-to-view must be settled first if applicable), mark the job completed when the user confirms acceptance. USDC moved at pay-to-view, not here.",
+            "As the client: align app with chain after delivery. If the chain is not completed yet, the tool returns onChain.steps so the user can send complete() from their wallet, then sync. After the wallet tx + sync, call this tool again to finalize DB.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
-            const result = await completeJobAsPoster({
+            const result = await completeJobAsClient({
                 userId,
                 jobId,
             })
-            if (!result.ok) {
-                return { success: false as const, error: result.error }
+            if (result.ok) {
+                return {
+                    success: true as const,
+                    jobId,
+                    message: "Job completed (chain + app aligned).",
+                }
+            }
+            const prep = await getCompleteJobOnChainBundle({ userId, jobId })
+            if (prep.ok) {
+                return {
+                    success: false as const,
+                    jobId,
+                    error: result.error,
+                    onChain: prep.bundle,
+                }
             }
             return {
-                success: true as const,
-                message: "Job completed.",
+                success: false as const,
+                jobId,
+                error: result.error,
             }
         },
     }),

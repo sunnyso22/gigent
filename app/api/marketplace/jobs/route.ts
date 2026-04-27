@@ -33,8 +33,8 @@ export const POST = async (req: Request) => {
         title?: string
         description?: string
         requiredModelId?: string
-        rewardAmount?: string
-        rewardCurrency?: string
+        budgetAmount?: string
+        expiresAtUnix?: number
     }
 
     try {
@@ -46,15 +46,10 @@ export const POST = async (req: Request) => {
     const title = body.title?.trim()
     const description = body.description?.trim()
     const requiredModelId = body.requiredModelId?.trim()
-    const rewardAmount = body.rewardAmount?.trim()
-    const rewardCurrency = body.rewardCurrency?.trim().toUpperCase()
+    const budgetAmount = body.budgetAmount?.trim()
 
-    if (!title || !description || !requiredModelId || !rewardAmount) {
+    if (!title || !description || !requiredModelId || !budgetAmount) {
         return jsonError(400, "Missing required fields")
-    }
-
-    if (rewardCurrency !== "USDC" && rewardCurrency !== "ETH") {
-        return jsonError(400, "rewardCurrency must be USDC or ETH")
     }
 
     try {
@@ -63,8 +58,8 @@ export const POST = async (req: Request) => {
             title,
             description,
             requiredModelId,
-            rewardAmount,
-            rewardCurrency,
+            budgetAmount,
+            expiresAtUnix: body.expiresAtUnix,
         })
         return NextResponse.json({ id })
     } catch (e) {

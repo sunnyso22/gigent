@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm"
 import { userWallet } from "@/lib/db/schema"
 import { db } from "@/lib/db"
 
-import { X402_BASE_SEPOLIA_NETWORK } from "./constants"
+import { KITE_CAIP2_NETWORK } from "./constants"
 
 export const getUserWalletForChain = async (input: {
     userId: string
@@ -25,10 +25,10 @@ export const getUserWalletForChain = async (input: {
     return row ?? null
 }
 
-export const getUserBaseSepoliaWalletAddress = async (userId: string) => {
+export const getUserKiteWalletAddress = async (userId: string) => {
     const w = await getUserWalletForChain({
         userId,
-        chainId: X402_BASE_SEPOLIA_NETWORK,
+        chainId: KITE_CAIP2_NETWORK,
     })
     return w?.address ?? null
 }

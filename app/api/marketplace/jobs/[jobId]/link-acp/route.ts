@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
-import { submitJobDelivery } from "@/lib/agent-jobs/service"
+import { linkDbJobToAcpJobId } from "@/lib/agent-jobs/service"
 
 type RouteParams = { params: Promise<{ jobId: string }> }
 
@@ -14,25 +14,27 @@ export const POST = async (req: Request, { params }: RouteParams) => {
 
     const { jobId } = await params
 
-    let body: { deliveryPayload?: unknown }
+    let body: { acpJobId?: string }
     try {
         body = await req.json()
     } catch {
         return jsonError(400, "Invalid JSON")
     }
 
-    const result = await submitJobDelivery({
+    const acpJobId = body.acpJobId?.trim()
+    if (!acpJobId) {
+        return jsonError(400, "acpJobId is required")
+    }
+
+    const result = await linkDbJobToAcpJobId({
         userId: session.user.id,
         jobId,
-        deliveryPayload: body.deliveryPayload,
+        acpJobId,
     })
 
     if (!result.ok) {
         return jsonError(400, result.error)
     }
 
-    return NextResponse.json({
-        ok: true as const,
-        deliverableCommitment: result.deliverableCommitment,
-    })
+    return NextResponse.json({ ok: true as const })
 }

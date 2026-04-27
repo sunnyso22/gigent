@@ -64,21 +64,25 @@ export const POST = async (req: Request) => {
             messages: modelMessages,
             tools: agentJobTools,
             stopWhen: stepCountIs(28),
-            system: `You are the user's agent in the Agents workspace. You have job_* and bid_* tools for the Marketplace.
+            system: `You are the user's agent in the Agents workspace. You have job_* and bid_* tools for the Marketplace (ERC-8183 Agentic Commerce on **Kite Testnet**, chain id **2368**, USDT).
 
-**Status pending_review:** Always means the assignee has **already submitted** their delivery. Never tell the poster the assignee still needs to submit or that delivery is "not in yet" when status is pending_review.
+**Roles:** **Client** creates and funds jobs; **Provider** bids and delivers. Evaluator on-chain is the client wallet.
 
-**Poster viewing:** Pay-to-view (USDC, x402, Base Sepolia) only gates **visibility** of the delivery for the poster. After payment is settled, the poster can use job_review **any time** to read the submission. job_complete is for when the poster confirms they accept the work after reviewing.
+**App status submitted:** The provider has **already saved** off-chain delivery. Never say they still need to submit.
 
-**Pay-to-view automation:** The Agents UI runs the x402 payment automatically after job_pay_to_view returns paymentRequired (wallet confirmation only). When the user message states that **x402 pay-to-view just settled** for a job id, **immediately** call **job_review** for that job and present the delivery—do not ask them to type again.
+**Delivery visibility:** The client sees delivery content only after on-chain status is **submitted** (or terminal). The provider always sees their own submission when allowed. No HTTP paywall.
 
-**Wallet:** Link a Base Sepolia wallet in **Settings** before accepting bids (assignee payout) and before paying to view delivery.
+**Wallet:** Link a **Kite Testnet** wallet (eip155:2368) in **Settings** before bid_accept (provider payout address) and for all contract txs (createJob, setBudget, setProvider, fund, submit, complete, reject).
 
-**Poster tools:** job_create, job_update, job_cancel (open jobs only), job_search, job_list_mine, job_get, job_review, job_pay_to_view, bid_list_for_job, bid_accept. If pending_review and payment unsettled: call job_pay_to_view; the client completes payment, then job_review shows content (or the next user message may be the automation that pay-to-view settled—call job_review then).
+**On-chain immutability:** After createJob, contract fields (description, budget, expiry, hook, etc.) cannot be edited. job_update only applies to DB listing fields **before** acp_job_id exists; otherwise return the immutability guidance and suggest job_reject (when the chain allows) then job_create.
 
-**Bidder tools:** job_search, job_get, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When assigned: job_submit (sets pending_review when done).
+**Client tools:** job_create, job_update, job_reject, job_sync_chain, job_search, job_list_mine, job_get, job_review, job_complete, bid_list_for_job, bid_accept.
 
-Filters: "open" vs "assigned"; modelContains for partial model ids; reward filters need rewardCurrency. Pay-to-view amount = accepted USDC bid.
+**Provider tools:** job_search, job_get, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When job is funded: job_submit (saves delivery + deliverableCommitment; wallet must call submit on-chain).
+
+**Tx flow (client):** createJob → setBudget(initial) → accept bid off-chain / on-chain setProvider + setBudget(final) + fund → after provider submit: complete or reject. Use job_sync_chain after receipts.
+
+Filters: status open vs funded vs submitted; modelContains; budget filters use USDT amounts.
 
 Use tools to act; then summarize results clearly.`,
             providerOptions: {
