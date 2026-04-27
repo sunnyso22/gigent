@@ -91,9 +91,11 @@ export const AgentsChatCore = ({
 
     const [draft, setDraft] = React.useState("")
     const [noKeyMessage, setNoKeyMessage] = React.useState<string | null>(null)
+    const [stoppedByUser, setStoppedByUser] = React.useState(false)
 
-    const busy =
-        conversationLoading || status === "submitted" || status === "streaming"
+    const isChatGenerating =
+        status === "submitted" || status === "streaming"
+    const composerBusy = conversationLoading || isChatGenerating
 
     React.useEffect(() => {
         if (hasApiKey) {
@@ -103,7 +105,7 @@ export const AgentsChatCore = ({
 
     const onSend = async () => {
         const text = draft.trim()
-        if (!text || busy) {
+        if (!text || composerBusy) {
             return
         }
         if (!hasApiKey) {
@@ -113,6 +115,7 @@ export const AgentsChatCore = ({
             return
         }
         setNoKeyMessage(null)
+        setStoppedByUser(false)
         clearError()
         setDraft("")
         await sendMessage({ text })
@@ -129,6 +132,83 @@ export const AgentsChatCore = ({
         }
         return `${t.slice(0, 56)}…`
     }, [messages, showToolLogs])
+
+    const displayMessages = React.useMemo(
+        () =>
+            messages.filter(
+                (m) => m.role === "user" || m.role === "assistant"
+            ),
+        [messages]
+    )
+
+    const showStandAloneThinking = React.useMemo(
+        () =>
+            isChatGenerating &&
+            displayMessages.length > 0 &&
+            displayMessages.at(-1)!.role === "user",
+        [isChatGenerating, displayMessages]
+    )
+
+    const chatContentRef = React.useRef<HTMLDivElement | null>(null)
+    const lastMessageId = messages.at(-1)?.id
+    const scrollChatToBottom = React.useCallback(
+        (options?: { force?: boolean }) => {
+            const el = chatContentRef.current
+            if (!el) {
+                return
+            }
+            const viewport = el.closest(
+                "[data-slot=scroll-area-viewport]"
+            ) as HTMLElement | null
+            if (!viewport) {
+                return
+            }
+            const force = options?.force === true
+            if (!force) {
+                const distanceFromBottom =
+                    viewport.scrollHeight -
+                    viewport.scrollTop -
+                    viewport.clientHeight
+                if (distanceFromBottom > 120) {
+                    return
+                }
+            }
+            viewport.scrollTop = viewport.scrollHeight
+        },
+        []
+    )
+
+    /** New messages, status changes, and layout markers — force scroll. */
+    React.useLayoutEffect(() => {
+        if (messages.length === 0) {
+            return
+        }
+        scrollChatToBottom({ force: true })
+    }, [
+        messages.length,
+        lastMessageId,
+        showStandAloneThinking,
+        status,
+        isChatGenerating,
+        stoppedByUser,
+        conversationLoading,
+        scrollChatToBottom,
+    ])
+
+    /** Track streaming / dynamic height: only scroll if user is already near the bottom. */
+    React.useEffect(() => {
+        const el = chatContentRef.current
+        if (!el) {
+            return
+        }
+        const ro = new ResizeObserver(() => {
+            scrollChatToBottom({ force: false })
+        })
+        ro.observe(el)
+        return () => {
+            ro.disconnect()
+        }
+    }, [scrollChatToBottom])
 
     React.useEffect(() => {
         latestOutboundChatModelId = selectedModelId
@@ -241,7 +321,10 @@ export const AgentsChatCore = ({
                 </Suspense>
 
                 <ScrollArea className="min-h-0 flex-1">
-                    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
+                    <div
+                        ref={chatContentRef}
+                        className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8"
+                    >
                         {messages.length === 0 ? (
                             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                                 <div className="flex flex-col gap-1">
@@ -266,54 +349,136 @@ export const AgentsChatCore = ({
                                 </div>
                             </div>
                         ) : (
-                            messages
-                                .filter(
-                                    (m) =>
-                                        m.role === "user" ||
-                                        m.role === "assistant"
-                                )
-                                .map((m) => (
+                            <>
+                                {displayMessages.map((m, i) => {
+                                    const isLast = i === displayMessages.length - 1
+                                    const text = getMessageTextForDisplay(m, {
+                                        showToolLogs,
+                                    })
+                                    const isPendingEmptyAssistant =
+                                        isChatGenerating &&
+                                        m.role === "assistant" &&
+                                        isLast &&
+                                        text.trim().length === 0
+                                    const isStoppedEmptyAssistant =
+                                        m.role === "assistant" &&
+                                        isLast &&
+                                        !isChatGenerating &&
+                                        stoppedByUser &&
+                                        text.trim().length === 0
+                                    if (isStoppedEmptyAssistant) {
+                                        return (
+                                            <div
+                                                key={m.id}
+                                                className="flex flex-row gap-3"
+                                            >
+                                                <div
+                                                    className="mt-0.5 w-6 shrink-0"
+                                                    aria-hidden
+                                                />
+                                                <p className="pt-0.5 text-xs text-muted-foreground">
+                                                    You stopped the response.
+                                                </p>
+                                            </div>
+                                        )
+                                    }
+                                    return (
+                                        <div
+                                            key={m.id}
+                                            className={cn(
+                                                "flex gap-3",
+                                                m.role === "user"
+                                                    ? "flex-row-reverse"
+                                                    : "flex-row"
+                                            )}
+                                        >
+                                            <Avatar
+                                                size="sm"
+                                                className="mt-0.5 shrink-0"
+                                            >
+                                                <AvatarFallback
+                                                    className={cn(
+                                                        "text-[10px]",
+                                                        m.role === "user"
+                                                            ? "bg-primary text-primary-foreground"
+                                                            : "bg-muted text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {m.role === "user"
+                                                        ? "You"
+                                                        : "AI"}
+                                                </AvatarFallback>
+                                            </Avatar>
+                                            <div
+                                                className={cn(
+                                                    "flex min-w-0 flex-1 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed",
+                                                    m.role === "user" &&
+                                                        "border-primary/25 bg-primary/5"
+                                                )}
+                                            >
+                                                {isPendingEmptyAssistant ? (
+                                                    <p
+                                                        className="flex items-center gap-2 text-muted-foreground"
+                                                        role="status"
+                                                        aria-live="polite"
+                                                    >
+                                                        <LoadingSpinner className="size-3.5 shrink-0" />
+                                                        <span>Thinking</span>
+                                                    </p>
+                                                ) : (
+                                                    <p className="whitespace-pre-wrap">
+                                                        {text}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                                {stoppedByUser &&
+                                !isChatGenerating &&
+                                displayMessages.length > 0 &&
+                                displayMessages.at(-1)!.role === "user" ? (
                                     <div
-                                        key={m.id}
-                                        className={cn(
-                                            "flex gap-3",
-                                            m.role === "user"
-                                                ? "flex-row-reverse"
-                                                : "flex-row"
-                                        )}
+                                        className="flex flex-row gap-3"
+                                        key="user-stopped-hint"
+                                    >
+                                        <div
+                                            className="mt-0.5 w-6 shrink-0"
+                                            aria-hidden
+                                        />
+                                        <p className="pt-0.5 text-xs text-muted-foreground">
+                                            You stopped the response.
+                                        </p>
+                                    </div>
+                                ) : null}
+                                {showStandAloneThinking ? (
+                                    <div
+                                        key="assistant-thinking"
+                                        className="flex flex-row gap-3"
+                                        role="status"
+                                        aria-live="polite"
                                     >
                                         <Avatar
                                             size="sm"
                                             className="mt-0.5 shrink-0"
                                         >
                                             <AvatarFallback
-                                                className={cn(
-                                                    "text-[10px]",
-                                                    m.role === "user"
-                                                        ? "bg-primary text-primary-foreground"
-                                                        : "bg-muted text-muted-foreground"
-                                                )}
+                                                className="text-[10px] bg-muted text-muted-foreground"
                                             >
-                                                {m.role === "user"
-                                                    ? "You"
-                                                    : "AI"}
+                                                AI
                                             </AvatarFallback>
                                         </Avatar>
                                         <div
-                                            className={cn(
-                                                "flex min-w-0 flex-1 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed",
-                                                m.role === "user" &&
-                                                    "border-primary/25 bg-primary/5"
-                                            )}
+                                            className="flex min-w-0 flex-1 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed"
                                         >
-                                            <p className="whitespace-pre-wrap">
-                                                {getMessageTextForDisplay(m, {
-                                                    showToolLogs,
-                                                })}
+                                            <p className="flex items-center gap-2 text-muted-foreground">
+                                                <LoadingSpinner className="size-3.5 shrink-0" />
+                                                <span>Thinking</span>
                                             </p>
                                         </div>
                                     </div>
-                                ))
+                                ) : null}
+                            </>
                         )}
                     </div>
                 </ScrollArea>
@@ -355,7 +520,7 @@ export const AgentsChatCore = ({
                                 placeholder="Create a job, search for jobs, or place a bid…"
                                 className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-2 py-2 text-xs shadow-none focus-visible:ring-0"
                                 aria-label="Message input"
-                                disabled={busy}
+                                disabled={composerBusy}
                             />
                             <div className="flex flex-wrap items-center gap-2 border-t border-border px-1 pt-2 pb-1">
                                 <div className="flex items-center gap-1">
@@ -364,21 +529,10 @@ export const AgentsChatCore = ({
                                         variant="ghost"
                                         size="icon-xs"
                                         aria-label="Attach file"
-                                        disabled={busy}
+                                        disabled={composerBusy}
                                     >
                                         <IconPaperclip />
                                     </Button>
-                                    {busy ? (
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon-xs"
-                                            aria-label="Stop generation"
-                                            onClick={() => void stop()}
-                                        >
-                                            <IconPlayerStop />
-                                        </Button>
-                                    ) : null}
                                 </div>
                                 <div className="flex h-8 min-w-0 flex-1 sm:max-w-xs">
                                     <Select
@@ -386,7 +540,7 @@ export const AgentsChatCore = ({
                                         onValueChange={(v) =>
                                             setSelectedModelId(v as ChatModelId)
                                         }
-                                        disabled={busy}
+                                        disabled={composerBusy}
                                     >
                                         <SelectTrigger
                                             aria-label="Model"
@@ -421,25 +575,35 @@ export const AgentsChatCore = ({
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    className="ml-auto shrink-0"
-                                    onClick={() => void onSend()}
-                                    disabled={!draft.trim() || busy}
-                                >
-                                    {busy ? (
-                                        <>
-                                            <LoadingSpinner data-icon="inline-start" />
-                                            Thinking
-                                        </>
-                                    ) : (
-                                        <>
-                                            Send
-                                            <IconSend data-icon="inline-end" />
-                                        </>
-                                    )}
-                                </Button>
+                                {isChatGenerating ? (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        className="ml-auto shrink-0"
+                                        aria-label="Stop generation"
+                                        onClick={() => {
+                                            setStoppedByUser(true)
+                                            void stop()
+                                        }}
+                                    >
+                                        <IconPlayerStop data-icon="inline-start" />
+                                        Stop
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="ml-auto shrink-0"
+                                        onClick={() => void onSend()}
+                                        disabled={
+                                            !draft.trim() || composerBusy
+                                        }
+                                    >
+                                        Send
+                                        <IconSend data-icon="inline-end" />
+                                    </Button>
+                                )}
                             </div>
                         </div>
                         <p className="mt-2 text-center text-[10px] text-muted-foreground">
