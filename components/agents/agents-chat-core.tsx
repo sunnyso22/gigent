@@ -6,7 +6,6 @@ import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
 import {
     IconArrowLeft,
-    IconPaperclip,
     IconPlayerStop,
     IconSend,
 } from "@tabler/icons-react"
@@ -39,6 +38,26 @@ import { extractLatestOnChainStepsFromMessages } from "@/lib/agents/extract-onch
 
 /** Updated in an effect so `DefaultChatTransport` can read the latest id without stale closures. */
 let latestOutboundChatModelId: ChatModelId = DEFAULT_CHAT_MODEL_ID
+
+const JOB_CREATE_TEMPLATE =
+    "Create a job with below requirements:\n- Title: \n- Description: \n- Model: \n- Budget: \n- Expiry date:"
+
+const JOB_CREATE_CARET_INDEX =
+    JOB_CREATE_TEMPLATE.indexOf("- Title: ") + "- Title: ".length
+
+const PLACE_BID_TEMPLATE =
+    "Place a bid on below job:\n- Job name: \n- Client: \n- Amount: "
+
+const PLACE_BID_CARET_INDEX =
+    PLACE_BID_TEMPLATE.indexOf("- Job name: ") + "- Job name: ".length
+
+const ACCEPT_BID_TEMPLATE =
+    "Accept the bid from:\n- Provider: \n- Amount: "
+
+const ACCEPT_BID_CARET_INDEX =
+    ACCEPT_BID_TEMPLATE.indexOf("- Provider: ") + "- Provider: ".length
+
+const LIST_ALL_BIDS_PROMPT = "List all bids of this job"
 
 export const AgentsChatCore = ({
     chatId,
@@ -90,6 +109,7 @@ export const AgentsChatCore = ({
     })
 
     const [draft, setDraft] = React.useState("")
+    const textareaRef = React.useRef<HTMLTextAreaElement>(null)
     const [noKeyMessage, setNoKeyMessage] = React.useState<string | null>(null)
     const [stoppedByUser, setStoppedByUser] = React.useState(false)
 
@@ -103,9 +123,38 @@ export const AgentsChatCore = ({
         }
     }, [hasApiKey])
 
-    const onSend = async () => {
-        const text = draft.trim()
-        if (!text || composerBusy) {
+    const insertDraftTemplate = (
+        template: string,
+        caretIndex: number
+    ) => {
+        setDraft(template)
+        if (noKeyMessage) {
+            setNoKeyMessage(null)
+        }
+        requestAnimationFrame(() => {
+            const el = textareaRef.current
+            if (el) {
+                el.focus()
+                el.setSelectionRange(caretIndex, caretIndex)
+            }
+        })
+    }
+
+    const insertJobTemplate = () =>
+        insertDraftTemplate(JOB_CREATE_TEMPLATE, JOB_CREATE_CARET_INDEX)
+
+    const insertBidTemplate = () =>
+        insertDraftTemplate(PLACE_BID_TEMPLATE, PLACE_BID_CARET_INDEX)
+
+    const insertAcceptBidTemplate = () =>
+        insertDraftTemplate(ACCEPT_BID_TEMPLATE, ACCEPT_BID_CARET_INDEX)
+
+    const submitUserMessage = async (
+        text: string,
+        clearDraftAfter: boolean
+    ) => {
+        const t = text.trim()
+        if (!t || composerBusy) {
             return
         }
         if (!hasApiKey) {
@@ -117,9 +166,16 @@ export const AgentsChatCore = ({
         setNoKeyMessage(null)
         setStoppedByUser(false)
         clearError()
-        setDraft("")
-        await sendMessage({ text })
+        if (clearDraftAfter) {
+            setDraft("")
+        }
+        await sendMessage({ text: t })
     }
+
+    const onSend = async () => submitUserMessage(draft, true)
+
+    const submitListAllBidsPrompt = async () =>
+        submitUserMessage(LIST_ALL_BIDS_PROMPT, false)
 
     const firstUserSnippet = React.useMemo(() => {
         const first = messages.find((m) => m.role === "user")
@@ -150,6 +206,26 @@ export const AgentsChatCore = ({
     )
 
     const chatContentRef = React.useRef<HTMLDivElement | null>(null)
+    const [showComposerFade, setShowComposerFade] = React.useState(false)
+
+    const updateComposerFade = React.useCallback(() => {
+        const el = chatContentRef.current
+        if (!el) {
+            return
+        }
+        const viewport = el.closest(
+            "[data-slot=scroll-area-viewport]"
+        ) as HTMLElement | null
+        if (!viewport) {
+            return
+        }
+        const distanceFromBottom =
+            viewport.scrollHeight -
+            viewport.scrollTop -
+            viewport.clientHeight
+        setShowComposerFade(distanceFromBottom > 32)
+    }, [])
+
     const lastMessageId = messages.at(-1)?.id
     const scrollChatToBottom = React.useCallback(
         (options?: { force?: boolean }) => {
@@ -174,13 +250,15 @@ export const AgentsChatCore = ({
                 }
             }
             viewport.scrollTop = viewport.scrollHeight
+            updateComposerFade()
         },
-        []
+        [updateComposerFade]
     )
 
     /** New messages, status changes, and layout markers — force scroll. */
     React.useLayoutEffect(() => {
         if (messages.length === 0) {
+            setShowComposerFade(false)
             return
         }
         scrollChatToBottom({ force: true })
@@ -194,6 +272,30 @@ export const AgentsChatCore = ({
         conversationLoading,
         scrollChatToBottom,
     ])
+
+    React.useEffect(() => {
+        const el = chatContentRef.current
+        if (!el) {
+            return
+        }
+        const viewport = el.closest(
+            "[data-slot=scroll-area-viewport]"
+        ) as HTMLElement | null
+        if (!viewport) {
+            return
+        }
+        updateComposerFade()
+        viewport.addEventListener("scroll", updateComposerFade, {
+            passive: true,
+        })
+        const ro = new ResizeObserver(updateComposerFade)
+        ro.observe(viewport)
+        ro.observe(el)
+        return () => {
+            viewport.removeEventListener("scroll", updateComposerFade)
+            ro.disconnect()
+        }
+    }, [messages.length, lastMessageId, updateComposerFade])
 
     /** Track streaming / dynamic height: only scroll if user is already near the bottom. */
     React.useEffect(() => {
@@ -320,11 +422,12 @@ export const AgentsChatCore = ({
                     <KeySavedBanner />
                 </Suspense>
 
-                <ScrollArea className="min-h-0 flex-1">
-                    <div
-                        ref={chatContentRef}
-                        className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8"
-                    >
+                <div className="relative min-h-0 flex-1">
+                    <ScrollArea className="h-full min-h-0">
+                        <div
+                            ref={chatContentRef}
+                            className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8"
+                        >
                         {messages.length === 0 ? (
                             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                                 <div className="flex flex-col gap-1">
@@ -480,10 +583,19 @@ export const AgentsChatCore = ({
                                 ) : null}
                             </>
                         )}
-                    </div>
-                </ScrollArea>
+                        </div>
+                    </ScrollArea>
+                    <div
+                        aria-hidden
+                        className={cn(
+                            "pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-16 bg-gradient-to-t from-background via-background/90 to-transparent",
+                            "transition-opacity duration-300 ease-out",
+                            showComposerFade ? "opacity-100" : "opacity-0"
+                        )}
+                    />
+                </div>
 
-                <footer className="shrink-0 border-t border-border bg-background/80 px-4 py-3 backdrop-blur">
+                <footer className="shrink-0 bg-background/80 px-4 py-3 backdrop-blur">
                     <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
                         {error || noKeyMessage ? (
                             <div className="mb-2 rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
@@ -502,8 +614,51 @@ export const AgentsChatCore = ({
                                 ) : null}
                             </div>
                         ) : null}
-                        <div className="flex flex-col gap-0 rounded-none border border-border bg-card p-2 shadow-sm">
+                        <div className="flex flex-wrap items-center gap-2 px-0.5">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 shrink-0 text-xs"
+                                onClick={insertJobTemplate}
+                                disabled={composerBusy}
+                            >
+                                Create a job
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 shrink-0 text-xs"
+                                onClick={insertBidTemplate}
+                                disabled={composerBusy}
+                            >
+                                Place a bid
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 shrink-0 text-xs"
+                                onClick={() => void submitListAllBidsPrompt()}
+                                disabled={composerBusy}
+                            >
+                                List all bids
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 shrink-0 text-xs"
+                                onClick={insertAcceptBidTemplate}
+                                disabled={composerBusy}
+                            >
+                                Accept a bid
+                            </Button>
+                        </div>
+                        <div className="flex flex-col gap-2 rounded-none border border-border bg-card p-2 shadow-sm">
                             <Textarea
+                                ref={textareaRef}
                                 value={draft}
                                 onChange={(e) => {
                                     setDraft(e.target.value)
@@ -517,24 +672,13 @@ export const AgentsChatCore = ({
                                         void onSend()
                                     }
                                 }}
-                                placeholder="Create a job, search for jobs, or place a bid…"
+                                placeholder="Create a job, place a bid, or finish the job…"
                                 className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-2 py-2 text-xs shadow-none focus-visible:ring-0"
                                 aria-label="Message input"
                                 disabled={composerBusy}
                             />
-                            <div className="flex flex-wrap items-center gap-2 border-t border-border px-1 pt-2 pb-1">
-                                <div className="flex items-center gap-1">
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon-xs"
-                                        aria-label="Attach file"
-                                        disabled={composerBusy}
-                                    >
-                                        <IconPaperclip />
-                                    </Button>
-                                </div>
-                                <div className="flex h-8 min-w-0 flex-1 sm:max-w-xs">
+                            <div className="flex flex-wrap items-center gap-2 px-1 pb-0.5">
+                                <div className="flex h-8 min-w-0 max-w-[14rem] shrink-0">
                                     <Select
                                         value={selectedModelId}
                                         onValueChange={(v) =>
@@ -545,7 +689,7 @@ export const AgentsChatCore = ({
                                         <SelectTrigger
                                             aria-label="Model"
                                             className={cn(
-                                                "h-8 w-full min-w-0 flex-1 justify-between border-none bg-transparent text-foreground shadow-none",
+                                                "h-8 w-full min-w-0 justify-between border-none bg-transparent text-foreground shadow-none",
                                                 "rounded-none transition-colors hover:bg-muted",
                                                 "focus:ring-0 focus-visible:ring-0",
                                                 "disabled:cursor-not-allowed disabled:opacity-50",
