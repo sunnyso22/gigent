@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
+import { HeaderConnectWalletButton } from "./header-connect-wallet-button"
 import { UserAccountMenu } from "./user-account-menu"
 import { Button } from "@/components/ui/button"
 import { authClient } from "@/lib/auth/client"
@@ -65,14 +66,17 @@ export const SiteHeader = () => {
                             aria-hidden
                         />
                     ) : session?.user ? (
-                        <UserAccountMenu
-                            user={{
-                                name: session.user.name,
-                                email: session.user.email,
-                                image: session.user.image,
-                            }}
-                            walletAddress={walletAddress}
-                        />
+                        <div className="flex items-center gap-2">
+                            <HeaderConnectWalletButton />
+                            <UserAccountMenu
+                                user={{
+                                    name: session.user.name,
+                                    email: session.user.email,
+                                    image: session.user.image,
+                                }}
+                                walletAddress={walletAddress}
+                            />
+                        </div>
                     ) : (
                         <Button size="sm" asChild>
                             <Link href="/login">Sign in</Link>

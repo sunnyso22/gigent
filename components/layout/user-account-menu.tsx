@@ -7,6 +7,7 @@ import { IconLogout, IconMoon, IconSettings, IconSun } from "@tabler/icons-react
 import { useTheme } from "next-themes"
 import { useDisconnect } from "wagmi"
 
+import { HeaderConnectWalletButton } from "./header-connect-wallet-button"
 import { UserAvatarDisplay } from "./session-avatar"
 import {
     DropdownMenu,
@@ -170,13 +171,16 @@ export const SessionAccountMenu = () => {
     }
 
     return (
-        <UserAccountMenu
-            user={{
-                name: session.user.name,
-                email: session.user.email,
-                image: session.user.image,
-            }}
-            walletAddress={walletAddress}
-        />
+        <div className="flex items-center gap-2">
+            <HeaderConnectWalletButton />
+            <UserAccountMenu
+                user={{
+                    name: session.user.name,
+                    email: session.user.email,
+                    image: session.user.image,
+                }}
+                walletAddress={walletAddress}
+            />
+        </div>
     )
 }

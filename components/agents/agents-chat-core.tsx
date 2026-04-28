@@ -343,7 +343,7 @@ export const AgentsChatCore = ({
                                                 </Link>
                                             </li>
                                             <li>Add your API key</li>
-                                            <li>Connect your wallet</li>
+                                            <li>Link your wallet address</li>
                                         </ol>
                                     </div>
                                 </div>
