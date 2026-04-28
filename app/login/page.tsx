@@ -5,7 +5,13 @@ import { useState } from "react"
 
 import { SiteHeader } from "@/components/layout/site-header"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card"
 import { authClient } from "@/lib/auth/client"
 
 const Page = () => {
@@ -47,6 +53,14 @@ const Page = () => {
 
             <main className="flex flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6">
                 <Card className="w-full max-w-sm border-border">
+                    <CardHeader className="space-y-1">
+                        <CardTitle className="font-heading text-base">
+                            Sign in
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                            Continue with GitHub or Google.
+                        </CardDescription>
+                    </CardHeader>
                     <CardContent className="flex flex-col gap-3">
                         {error ? (
                             <p
