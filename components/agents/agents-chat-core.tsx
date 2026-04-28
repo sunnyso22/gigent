@@ -18,7 +18,6 @@ import {
 import { SessionAccountMenu } from "@/components/layout/user-account-menu"
 import { WorkspaceNav } from "@/components/layout/workspace-nav"
 import { Loading, LoadingSpinner } from "@/components/ui/loading"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
     Select,
@@ -471,52 +470,31 @@ export const AgentsChatCore = ({
                                         text.trim().length === 0
                                     if (isStoppedEmptyAssistant) {
                                         return (
-                                            <div
+                                            <p
                                                 key={m.id}
-                                                className="flex flex-row gap-3"
+                                                className="text-xs text-muted-foreground"
                                             >
-                                                <div
-                                                    className="mt-0.5 w-6 shrink-0"
-                                                    aria-hidden
-                                                />
-                                                <p className="pt-0.5 text-xs text-muted-foreground">
-                                                    You stopped the response.
-                                                </p>
-                                            </div>
+                                                You stopped the response.
+                                            </p>
                                         )
                                     }
                                     return (
                                         <div
                                             key={m.id}
                                             className={cn(
-                                                "flex gap-3",
+                                                "flex w-full min-w-0",
                                                 m.role === "user"
-                                                    ? "flex-row-reverse"
-                                                    : "flex-row"
+                                                    ? "justify-end"
+                                                    : "justify-start"
                                             )}
                                         >
-                                            <Avatar
-                                                size="sm"
-                                                className="mt-0.5 shrink-0"
-                                            >
-                                                <AvatarFallback
-                                                    className={cn(
-                                                        "text-[10px]",
-                                                        m.role === "user"
-                                                            ? "bg-primary text-primary-foreground"
-                                                            : "bg-muted text-muted-foreground"
-                                                    )}
-                                                >
-                                                    {m.role === "user"
-                                                        ? "You"
-                                                        : "AI"}
-                                                </AvatarFallback>
-                                            </Avatar>
                                             <div
                                                 className={cn(
-                                                    "flex min-w-0 flex-1 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed",
+                                                    "flex min-w-0 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed",
                                                     m.role === "user" &&
-                                                        "border-primary/25 bg-primary/5"
+                                                        "max-w-[min(100%,28rem)] border-primary/25 bg-primary/5",
+                                                    m.role === "assistant" &&
+                                                        "w-full min-w-0"
                                                 )}
                                             >
                                                 {isPendingEmptyAssistant ? (
@@ -541,38 +519,22 @@ export const AgentsChatCore = ({
                                 !isChatGenerating &&
                                 displayMessages.length > 0 &&
                                 displayMessages.at(-1)!.role === "user" ? (
-                                    <div
-                                        className="flex flex-row gap-3"
+                                    <p
+                                        className="text-xs text-muted-foreground"
                                         key="user-stopped-hint"
                                     >
-                                        <div
-                                            className="mt-0.5 w-6 shrink-0"
-                                            aria-hidden
-                                        />
-                                        <p className="pt-0.5 text-xs text-muted-foreground">
-                                            You stopped the response.
-                                        </p>
-                                    </div>
+                                        You stopped the response.
+                                    </p>
                                 ) : null}
                                 {showStandAloneThinking ? (
                                     <div
                                         key="assistant-thinking"
-                                        className="flex flex-row gap-3"
+                                        className="w-full min-w-0"
                                         role="status"
                                         aria-live="polite"
                                     >
-                                        <Avatar
-                                            size="sm"
-                                            className="mt-0.5 shrink-0"
-                                        >
-                                            <AvatarFallback
-                                                className="text-[10px] bg-muted text-muted-foreground"
-                                            >
-                                                AI
-                                            </AvatarFallback>
-                                        </Avatar>
                                         <div
-                                            className="flex min-w-0 flex-1 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed"
+                                            className="flex min-w-0 flex-col gap-1 rounded-none border border-border bg-card px-3 py-2.5 text-xs leading-relaxed"
                                         >
                                             <p className="flex items-center gap-2 text-muted-foreground">
                                                 <LoadingSpinner className="size-3.5 shrink-0" />
