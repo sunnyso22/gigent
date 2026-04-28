@@ -693,8 +693,8 @@ export const AgentsChatCore = ({
                                             void stop()
                                         }}
                                     >
-                                        <IconPlayerStop data-icon="inline-start" />
                                         Stop
+                                        <IconPlayerStop data-icon="inline-start" />
                                     </Button>
                                 ) : (
                                     <Button

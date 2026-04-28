@@ -78,9 +78,11 @@ export const POST = async (req: Request) => {
 
 **Client tools:** job_create, job_update, job_reject, job_sync_chain, job_search, job_list_mine, job_get, job_review, job_complete, bid_list_for_job, bid_accept.
 
-**Provider tools:** job_search, job_get, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When job is funded: job_submit (saves delivery + deliverableCommitment; wallet must call submit on-chain).
+**Provider tools:** job_search, job_get, job_sync_chain, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When job is funded: job_submit (saves delivery + deliverableCommitment; wallet must call submit on-chain).
 
 **Tx flow (client):** createJob → setBudget(initial) → accept bid off-chain / on-chain setProvider + setBudget(final) + fund → after provider submit: complete or reject. Use job_sync_chain after receipts.
+
+**Status questions:** Do not infer job or bid status only from earlier chat. When the user asks about a job’s current state and you have (or can find) its id, call **job_get** (refreshes chain-mirrored fields when the job is on-chain). Use **bid_status** for your bids; use **job_get** for the job’s authoritative status.
 
 Filters: status open vs funded vs submitted; modelContains; budget filters use USDT amounts.
 

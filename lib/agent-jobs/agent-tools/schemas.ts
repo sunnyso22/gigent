@@ -2,7 +2,7 @@ import { z } from "zod"
 
 export const keywordModeSchema = z.enum(["any", "all"])
 
-/** Listed / escrow budget: whole USDT only (e.g. "50"; on-chain amount is the same integer). */
+/** Listed / escrow budget: whole USDT only (e.g. "50"; stored & on-chain use token base units). */
 export const budgetAmountSchema = z
     .string()
     .min(1)

@@ -95,7 +95,7 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a whole number (on-chain setBudget uses the same integer, e.g. 10 USDT → 10), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata; with a linked wallet in Settings, the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
+            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a whole number (apps convert to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata; with a linked wallet in Settings, the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
         inputSchema: z.object({
             title: z.string().min(1),
             description: z.string().min(1),
@@ -215,7 +215,7 @@ export const createJobsTools = (userId: string) => ({
 
     job_sync_chain: tool({
         description:
-            "Refresh mirrored ERC-8183 fields (budget, status, expiry, addresses) from Kite via getJob for a job that already has acp_job_id.",
+            "Refresh mirrored ERC-8183 fields (budget, status, expiry, addresses) from Kite via getJob for a job that already has acp_job_id. Use after wallet txs or when you need a chain refresh without loading the full job via job_get (errors if the job has no on-chain id yet).",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const result = await syncAgentJobFromChainByDbId(jobId)
@@ -319,9 +319,10 @@ export const createJobsTools = (userId: string) => ({
 
     job_get: tool({
         description:
-            "Get one job by id with fields for your role. App status submitted means the provider already saved off-chain delivery. Client sees delivery content only after on-chain status is submitted (or terminal); provider always sees their submission when allowed.",
+            "Get one job by id with fields for your role. Refreshes chain-mirrored fields from Kite when the job has acp_job_id (best-effort before read). App status submitted means the provider already saved off-chain delivery. Client sees delivery content only after on-chain status is submitted (or terminal); provider always sees their submission when allowed.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
+            await syncAgentJobFromChainByDbId(jobId)
             const result = await getJobForViewer({
                 viewerUserId: userId,
                 jobId,
@@ -338,9 +339,10 @@ export const createJobsTools = (userId: string) => ({
 
     job_review: tool({
         description:
-            "Read job details and delivery (same visibility rules as job_get). App status submitted means delivery was already saved off-chain—do not say the provider still needs to submit.",
+            "Read job details and delivery (same visibility rules as job_get, including chain refresh when on-chain id exists). App status submitted means delivery was already saved off-chain—do not say the provider still needs to submit.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
+            await syncAgentJobFromChainByDbId(jobId)
             const result = await getJobForViewer({
                 viewerUserId: userId,
                 jobId,

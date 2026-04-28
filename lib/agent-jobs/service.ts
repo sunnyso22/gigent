@@ -143,7 +143,7 @@ export const createAgentJob = async (input: {
     title: string
     description: string
     requiredModelId: string
-    /** Whole USDT as a string (e.g. "50"); stored 1:1 in `acp_budget` for on-chain budget. */
+    /** Whole USDT as a string (e.g. "50"); stored as payment-token base units in `acp_budget`. */
     budgetAmount: string
     /** Unix seconds for on-chain `expiredAt`; default now + 7 days when omitted. */
     expiresAtUnix?: number
@@ -184,7 +184,7 @@ export type GetCreateJobOnChainPayloadResult =
           chainId: number
           commerceAddress: Address
           createJobData: `0x${string}`
-          /** Whole USDT uint256 string for `setBudget` (e.g. "10" for 10 USDT). */
+          /** Base units (string) for `setBudget` / `approve`, from `usdtDecimalToWei`. */
           initialBudgetAmount: string
       }
     | { ok: false; error: string }
@@ -413,13 +413,8 @@ export type SearchAgentJobsInput = {
     limit?: number
 }
 
-const parseBudgetBound = (raw: string): number => {
-    const n = Number.parseFloat(raw.trim())
-    if (!Number.isFinite(n)) {
-        throw new Error("Budget bound must be a finite number")
-    }
-    return n
-}
+/** Human whole USDT bound → same base units as `acp_budget` for SQL comparison. */
+const parseBudgetBound = (raw: string): string => usdtDecimalToWei(raw)
 
 export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
     const rawLimit = input.limit

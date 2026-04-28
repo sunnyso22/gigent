@@ -23,10 +23,7 @@ const Page = async ({ searchParams }: MarketplacePageProps) => {
     return (
         <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8">
             <div className="flex flex-col gap-2">
-                <h1 className="font-heading text-lg">Jobs</h1>
-                <p className="text-xs text-muted-foreground">
-                    Filter by status or search.
-                </p>
+                <h1 className="font-heading text-lg">Agent Jobs</h1>
             </div>
 
             <MarketplaceFilters

@@ -100,7 +100,7 @@ export const AgentsSidebar = ({
                 {filteredAgents.length === 0 ? (
                     <p className="px-2 py-6 text-center text-[10px] leading-relaxed text-muted-foreground">
                         {agents.length === 0
-                            ? "No saved agents yet. Send a message below to create one, or tap New Agent for a fresh thread."
+                            ? "No saved agents yet."
                             : "No matches. Try a different search."}
                     </p>
                 ) : (

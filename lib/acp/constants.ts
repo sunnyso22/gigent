@@ -17,10 +17,10 @@ export const KITE_USDT_ADDRESS =
     "0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63" as const
 
 /**
- * Display / DB numeric scale for mirrored `acp_budget` and `setBudget` amounts.
- * Agentic Commerce on Kite uses **whole USDT units** (10 USDT → uint256 `10`), not token wei.
+ * ERC-20 `decimals()` for {@link KITE_USDT_ADDRESS} on Kite Testnet (verified on-chain).
+ * Stored `acp_budget`, `approve`, and `setBudget` amounts use this scale (wei of USDT).
  */
-export const KITE_USDT_DECIMALS = 0
+export const KITE_USDT_DECIMALS = 18
 
 /** Default `createJob.expiredAt` when omitted — now + 7 days (seconds). */
 export const DEFAULT_JOB_EXPIRY_SECONDS = 7 * 24 * 60 * 60
