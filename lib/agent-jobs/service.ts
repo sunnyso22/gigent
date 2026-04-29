@@ -34,10 +34,7 @@ import {
     parseJobDeliveryPayload,
     parseJobDeliveryPayloadFromDb,
 } from "./delivery/payload"
-import {
-    canViewerAccessJobDelivery,
-    shouldHideDeliveryFromClientUntilOnChainSubmit,
-} from "./delivery/visibility"
+import { shouldExposeDeliveryFieldsToViewer } from "./delivery/visibility"
 import type { AgentJobStatus } from "./job-status"
 
 export { syncAgentJobFromChainByDbId } from "@/lib/acp/sync-agent-job"
@@ -1025,33 +1022,16 @@ export const getJobForViewer = async (input: {
         return { ok: false as const, error: "Job not found" as const }
     }
 
-    const canSeeDelivery = canViewerAccessJobDelivery(
-        input.viewerUserId,
-        job.clientUserId,
-        job.providerUserId
-    )
+    const exposeDelivery = shouldExposeDeliveryFieldsToViewer({
+        viewerUserId: input.viewerUserId,
+        clientUserId: job.clientUserId,
+        providerUserId: job.providerUserId,
+        jobStatus: job.status,
+        acpJobId: job.acpJobId,
+        acpStatus: job.acpStatus,
+    })
 
-    if (!canSeeDelivery) {
-        return {
-            ok: true as const,
-            job: {
-                ...job,
-                deliveryPayload: null,
-                submittedAt: null,
-            },
-        }
-    }
-
-    const hideFromClientUntilSubmit = shouldHideDeliveryFromClientUntilOnChainSubmit(
-        {
-            viewerUserId: input.viewerUserId,
-            clientUserId: job.clientUserId,
-            acpJobId: job.acpJobId,
-            acpStatus: job.acpStatus,
-        }
-    )
-
-    if (hideFromClientUntilSubmit) {
+    if (!exposeDelivery) {
         return {
             ok: true as const,
             job: {

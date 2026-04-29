@@ -1,7 +1,4 @@
-import {
-    canViewerAccessJobDelivery,
-    shouldHideDeliveryFromClientUntilOnChainSubmit,
-} from "@/lib/agent-jobs/delivery/visibility"
+import { shouldExposeDeliveryFieldsToViewer } from "@/lib/agent-jobs/delivery/visibility"
 import { getAgentJobById, listBidsForJob } from "@/lib/agent-jobs/service"
 
 export const getJobWithBidsForViewer = async (
@@ -14,36 +11,22 @@ export const getJobWithBidsForViewer = async (
     }
 
     const bids = await listBidsForJob(jobId)
-    const canViewDelivery = canViewerAccessJobDelivery(
-        viewerUserId ?? null,
-        job.clientUserId,
-        job.providerUserId
-    )
+    const showDeliveryFields = shouldExposeDeliveryFieldsToViewer({
+        viewerUserId,
+        clientUserId: job.clientUserId,
+        providerUserId: job.providerUserId,
+        jobStatus: job.status,
+        acpJobId: job.acpJobId,
+        acpStatus: job.acpStatus,
+    })
 
-    let jobResponse = canViewDelivery
+    const jobResponse = showDeliveryFields
         ? job
         : {
               ...job,
               deliveryPayload: null,
               submittedAt: null,
           }
-
-    if (
-        canViewDelivery &&
-        viewerUserId &&
-        shouldHideDeliveryFromClientUntilOnChainSubmit({
-            viewerUserId,
-            clientUserId: job.clientUserId,
-            acpJobId: job.acpJobId,
-            acpStatus: job.acpStatus,
-        })
-    ) {
-        jobResponse = {
-            ...job,
-            deliveryPayload: null,
-            submittedAt: null,
-        }
-    }
 
     return { job: jobResponse, bids }
 }

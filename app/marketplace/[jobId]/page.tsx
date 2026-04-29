@@ -1,13 +1,12 @@
 import { notFound } from "next/navigation"
 
+import MarketplaceJobListingFields, {
+    MarketplaceJobStatusBadge,
+} from "@/components/marketplace/marketplace-job-listing-fields"
 import { MarketplaceJobActions } from "@/components/marketplace/marketplace-job-actions"
 import { getSession } from "@/lib/auth/session"
 import { signDeliveryPayloadUrlsForViewer } from "@/lib/agent-jobs/delivery/sign-viewer-urls"
-import {
-    canViewerAccessJobDelivery,
-    shouldHideDeliveryFromClientUntilOnChainSubmit,
-} from "@/lib/agent-jobs/delivery/visibility"
-import { formatJobBudgetStatusExpiryLine } from "@/lib/agent-jobs/format-job-summary"
+import { shouldExposeDeliveryFieldsToViewer } from "@/lib/agent-jobs/delivery/visibility"
 import { getAgentJobById, listBidsForJob } from "@/lib/agent-jobs/service"
 
 type JobPageProps = {
@@ -27,22 +26,14 @@ const Page = async ({ params }: JobPageProps) => {
     const bids = await listBidsForJob(jobId)
 
     const viewerId = session?.user?.id ?? null
-    const canViewDelivery = canViewerAccessJobDelivery(
-        viewerId,
-        job.clientUserId,
-        job.providerUserId
-    )
-
-    const hideUntilChainSubmit =
-        viewerId != null &&
-        shouldHideDeliveryFromClientUntilOnChainSubmit({
-            viewerUserId: viewerId,
-            clientUserId: job.clientUserId,
-            acpJobId: job.acpJobId,
-            acpStatus: job.acpStatus,
-        })
-
-    const showDeliveryContent = canViewDelivery && !hideUntilChainSubmit
+    const showDeliveryContent = shouldExposeDeliveryFieldsToViewer({
+        viewerUserId: viewerId,
+        clientUserId: job.clientUserId,
+        providerUserId: job.providerUserId,
+        jobStatus: job.status,
+        acpJobId: job.acpJobId,
+        acpStatus: job.acpStatus,
+    })
 
     const deliveryPayload = showDeliveryContent
         ? await signDeliveryPayloadUrlsForViewer({
@@ -55,39 +46,65 @@ const Page = async ({ params }: JobPageProps) => {
         : null
 
     return (
-        <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8">
-            <div className="flex flex-col gap-1">
-                <h1 className="font-heading text-lg">{job.title}</h1>
-                <p className="text-[10px] text-muted-foreground">
-                    {formatJobBudgetStatusExpiryLine(job)} · Model{" "}
-                    {job.requiredModelId}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                    Client: {job.clientName}
-                </p>
-            </div>
+        <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-10 px-4 py-8">
+            <header className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <h1 className="min-w-0 flex-1 font-heading text-2xl leading-tight tracking-tight text-foreground sm:text-3xl">
+                        {job.title}
+                    </h1>
+                    <MarketplaceJobStatusBadge status={job.status} />
+                </div>
+                <MarketplaceJobListingFields
+                    clientName={job.clientName}
+                    budgetAmount={job.budgetAmount}
+                    budgetCurrency={job.budgetCurrency}
+                    requiredModelId={job.requiredModelId}
+                    acpExpiresAt={job.acpExpiresAt}
+                />
+            </header>
 
-            <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                {job.description}
-            </p>
-
-            <section aria-labelledby="bids-heading" className="flex flex-col gap-2">
-                <h2 id="bids-heading" className="text-xs font-medium">
-                    Bids
+            <section
+                aria-labelledby="description-heading"
+                className="flex flex-col gap-2"
+            >
+                <h2
+                    id="description-heading"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                    Description
                 </h2>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                    {job.description}
+                </p>
+            </section>
+
+            <section
+                aria-labelledby="bids-heading"
+                className="flex flex-col gap-3 rounded-none border border-border bg-card"
+            >
+                <div className="border-b border-border px-4 py-3">
+                    <h2
+                        id="bids-heading"
+                        className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                        Bids
+                    </h2>
+                </div>
                 {bids.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No bids yet.</p>
+                    <p className="px-4 pb-4 text-xs text-muted-foreground">
+                        No bids yet.
+                    </p>
                 ) : (
-                    <ul className="flex flex-col gap-1 text-xs">
+                    <ul className="flex flex-col divide-y divide-border px-4 pb-2">
                         {bids.map((b) => (
                             <li
                                 key={b.id}
-                                className="flex flex-wrap justify-between gap-2 border border-border bg-card px-2 py-1.5"
+                                className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-xs first:pt-2"
                             >
-                                <span>
+                                <span className="text-foreground">
                                     {b.providerName}: {b.amount} {b.currency}
                                 </span>
-                                <span className="text-muted-foreground">
+                                <span className="text-[11px] text-muted-foreground">
                                     {b.status}
                                 </span>
                             </li>

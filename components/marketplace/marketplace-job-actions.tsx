@@ -2,6 +2,7 @@ import Image from "next/image"
 import Link from "next/link"
 
 import type { JobDeliveryPayloadFromDb } from "@/lib/agent-jobs/delivery/payload"
+import { isJobStatusEligibleForDeliveryContent } from "@/lib/agent-jobs/delivery/visibility"
 
 type JobDetail = {
     id: string
@@ -38,7 +39,7 @@ export const MarketplaceJobActions = ({
 
     const showDeliveryPanel =
         (isClient || isProvider) &&
-        (job.status === "submitted" || job.status === "completed") &&
+        isJobStatusEligibleForDeliveryContent(job.status) &&
         (job.submittedAt != null ||
             (job.deliveryPayload?.blocks?.length ?? 0) > 0)
 

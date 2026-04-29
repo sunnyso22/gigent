@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select"
 
 import {
+    AGENT_JOB_STATUS_LABELS,
     type AgentJobStatus,
     parseAgentJobStatusFilter,
 } from "@/lib/agent-jobs/job-status"
@@ -26,12 +27,7 @@ type MarketplaceFiltersProps = {
 
 const STATUS_LABEL: Record<StatusFilter, string> = {
     all: "All statuses",
-    open: "Open",
-    funded: "Funded",
-    submitted: "Submitted",
-    completed: "Completed",
-    rejected: "Rejected",
-    expired: "Expired",
+    ...AGENT_JOB_STATUS_LABELS,
 }
 
 const buildPath = (q: string, status: StatusFilter) => {

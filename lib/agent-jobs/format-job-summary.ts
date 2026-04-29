@@ -5,6 +5,17 @@ export type JobBudgetStatusExpiryFields = {
     acpExpiresAt: Date | null
 }
 
+/** Long-form expiry for job detail (timezone-aware). */
+export const formatJobExpiryDate = (expiry: Date | null): string | null => {
+    if (expiry == null) {
+        return null
+    }
+    return expiry.toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+    })
+}
+
 /** Budget · status · optional expiry line (used on marketplace list and job detail). */
 export const formatJobBudgetStatusExpiryLine = (
     j: JobBudgetStatusExpiryFields

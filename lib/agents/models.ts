@@ -22,6 +22,12 @@ export const CHAT_MODELS: ChatModelOption[] = [
 
 export const DEFAULT_CHAT_MODEL_ID: ChatModelId = CHAT_MODELS[0].id
 
+/** Short label from model id; falls back to the raw id when unknown. */
+export const labelForChatModelId = (modelId: string): string => {
+    const found = CHAT_MODELS.find((m) => m.id === modelId)
+    return found?.label ?? modelId
+}
+
 export const isChatModelId = (
     value: string | undefined
 ): value is ChatModelId =>
