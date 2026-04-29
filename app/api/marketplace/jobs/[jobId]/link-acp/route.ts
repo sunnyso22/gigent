@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
+import { linkJobToAcpForUser } from "@/lib/agent-jobs/participant-chain"
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
-import { linkDbJobToAcpJobId } from "@/lib/agent-jobs/service"
 
 type RouteParams = { params: Promise<{ jobId: string }> }
 
@@ -14,23 +14,24 @@ export const POST = async (req: Request, { params }: RouteParams) => {
 
     const { jobId } = await params
 
-    let body: { acpJobId?: string }
+    let body: { acpJobId?: string; clientWalletAddress?: string }
     try {
         body = await req.json()
     } catch {
         return jsonError(400, "Invalid JSON")
     }
 
-    const acpJobId = body.acpJobId?.trim()
-    if (!acpJobId) {
-        return jsonError(400, "acpJobId is required")
+    const clientWallet = body.clientWalletAddress?.trim()
+    if (!clientWallet) {
+        return jsonError(400, "clientWalletAddress is required")
     }
 
-    const result = await linkDbJobToAcpJobId({
-        userId: session.user.id,
+    const result = await linkJobToAcpForUser(
+        session.user.id,
         jobId,
-        acpJobId,
-    })
+        body.acpJobId ?? "",
+        clientWallet
+    )
 
     if (!result.ok) {
         return jsonError(400, result.error)

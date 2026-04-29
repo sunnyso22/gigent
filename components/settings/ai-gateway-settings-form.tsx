@@ -4,6 +4,11 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { IconTrash } from "@tabler/icons-react"
 
+import {
+    deleteAiGatewayApiKeyAction,
+    getAiGatewaySettingsAction,
+    saveAiGatewayApiKeyAction,
+} from "@/app/actions/ai-gateway"
 import { Button } from "@/components/ui/button"
 import {
     Card,
@@ -52,26 +57,22 @@ export const AiGatewaySettingsForm = ({
         ;(async () => {
             setLoading(true)
             try {
-                const res = await fetch("/api/settings/ai-gateway", {
-                    credentials: "include",
-                })
-                const data = (await res.json()) as {
-                    configured?: boolean
-                    keyLast4?: string | null
-                    error?: string
-                }
-                if (!res.ok) {
+                const result = await getAiGatewaySettingsAction()
+                if (!result.ok) {
                     if (!cancelled) {
                         setStatus({
                             kind: "error",
-                            message: data.error ?? "Failed to load settings",
+                            message:
+                                result.error === "unauthorized"
+                                    ? "Sign in required"
+                                    : "Failed to load settings",
                         })
                     }
                     return
                 }
                 if (!cancelled) {
-                    setConfigured(Boolean(data.configured))
-                    setKeyLast4(data.keyLast4 ?? null)
+                    setConfigured(Boolean(result.configured))
+                    setKeyLast4(result.keyLast4 ?? null)
                     setStatus({ kind: "idle" })
                 }
             } catch {
@@ -104,27 +105,17 @@ export const AiGatewaySettingsForm = ({
         setSaving(true)
         setStatus({ kind: "idle" })
         try {
-            const res = await fetch("/api/settings/ai-gateway", {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ apiKey: trimmed }),
-            })
-            const data = (await res.json()) as {
-                configured?: boolean
-                keyLast4?: string | null
-                error?: string
-            }
-            if (!res.ok) {
+            const result = await saveAiGatewayApiKeyAction(trimmed)
+            if (!result.ok) {
                 setStatus({
                     kind: "error",
-                    message: data.error ?? "Could not save key",
+                    message: result.error ?? "Could not save key",
                 })
                 return
             }
             setApiKeyDraft("")
-            setConfigured(Boolean(data.configured))
-            setKeyLast4(data.keyLast4 ?? null)
+            setConfigured(Boolean(result.configured))
+            setKeyLast4(result.keyLast4 ?? null)
             router.push("/agents?keySaved=1")
             router.refresh()
         } catch {
@@ -141,15 +132,14 @@ export const AiGatewaySettingsForm = ({
         setSaving(true)
         setStatus({ kind: "idle" })
         try {
-            const res = await fetch("/api/settings/ai-gateway", {
-                method: "DELETE",
-                credentials: "include",
-            })
-            const data = (await res.json()) as { error?: string }
-            if (!res.ok) {
+            const result = await deleteAiGatewayApiKeyAction()
+            if (!result.ok) {
                 setStatus({
                     kind: "error",
-                    message: data.error ?? "Could not remove key",
+                    message:
+                        result.error === "unauthorized"
+                            ? "Sign in required"
+                            : "Could not remove key",
                 })
                 return
             }

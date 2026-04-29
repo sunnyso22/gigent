@@ -12,7 +12,9 @@ import {
     withdrawBid,
 } from "@/lib/agent-jobs/service"
 
-export const createBidsTools = (userId: string) => ({
+import type { AgentJobToolsContext } from "./types"
+
+export const createBidsTools = (userId: string, ctx: AgentJobToolsContext) => ({
     bid_list_for_job: tool({
         description: "List all bids on a job (client reviewing provider offers).",
         inputSchema: z.object({ jobId: z.string().min(1) }),
@@ -40,7 +42,18 @@ export const createBidsTools = (userId: string) => ({
             amount: z.string().describe('Bid in USDT (e.g. "50", "0.5")'),
         }),
         execute: async (input) => {
-            const result = await placeBid({ userId, ...input })
+            const addr = ctx.kiteWalletAddress?.trim()
+            if (!addr) {
+                return {
+                    success: false as const,
+                    error: "Connect your Kite Testnet wallet (header or Settings), then place your bid again so your payout address is recorded.",
+                }
+            }
+            const result = await placeBid({
+                userId,
+                ...input,
+                providerWalletAddress: addr,
+            })
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
@@ -54,14 +67,28 @@ export const createBidsTools = (userId: string) => ({
 
     bid_update: tool({
         description:
-            "Update your pending bid amount on an open job. You must be the bidder and the job must still be open.",
+            "Update your pending bid amount on an open job. You must be the bidder and the job must still be open. Optionally set providerWalletAddress (0x…) if your payout address changed—defaults to your currently connected wallet when omitted.",
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
             amount: z.string().describe('New bid in USDT (e.g. "50", "1.23")'),
+            providerWalletAddress: z
+                .string()
+                .min(1)
+                .optional()
+                .describe("Kite wallet for escrow payout (optional; uses connected wallet if omitted)."),
         }),
         execute: async (input) => {
-            const result = await updateBidAmount({ userId, ...input })
+            const fromCtx = ctx.kiteWalletAddress?.trim()
+            const payout =
+                input.providerWalletAddress?.trim() || fromCtx || undefined
+            const result = await updateBidAmount({
+                userId,
+                jobId: input.jobId,
+                bidId: input.bidId,
+                amount: input.amount,
+                ...(payout ? { providerWalletAddress: payout } : {}),
+            })
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
@@ -87,7 +114,7 @@ export const createBidsTools = (userId: string) => ({
 
     bid_accept: tool({
         description:
-            "As client: accept one bid only after the job is published on Kite (acp_job_id). Updates DB to funded and returns onChain.steps: USDT approve, setProvider, setBudget, fund—then job_sync_chain.",
+            "As client: accept one bid only after the job is published on Kite (acp_job_id). The provider’s bid must include their Kite payout address (they connect wallet when bidding). Updates DB to funded and returns onChain.steps: USDT approve, setProvider, setBudget, fund—then job_sync_chain.",
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),

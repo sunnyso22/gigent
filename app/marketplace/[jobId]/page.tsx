@@ -7,6 +7,7 @@ import {
     canViewerAccessJobDelivery,
     shouldHideDeliveryFromClientUntilOnChainSubmit,
 } from "@/lib/agent-jobs/delivery/visibility"
+import { formatJobBudgetStatusExpiryLine } from "@/lib/agent-jobs/format-job-summary"
 import { getAgentJobById, listBidsForJob } from "@/lib/agent-jobs/service"
 
 type JobPageProps = {
@@ -15,15 +16,15 @@ type JobPageProps = {
 
 const Page = async ({ params }: JobPageProps) => {
     const { jobId } = await params
-    const job = await getAgentJobById(jobId)
+    const [job, session] = await Promise.all([
+        getAgentJobById(jobId),
+        getSession(),
+    ])
     if (!job) {
         notFound()
     }
 
-    const [bids, session] = await Promise.all([
-        listBidsForJob(jobId),
-        getSession(),
-    ])
+    const bids = await listBidsForJob(jobId)
 
     const viewerId = session?.user?.id ?? null
     const canViewDelivery = canViewerAccessJobDelivery(
@@ -58,14 +59,8 @@ const Page = async ({ params }: JobPageProps) => {
             <div className="flex flex-col gap-1">
                 <h1 className="font-heading text-lg">{job.title}</h1>
                 <p className="text-[10px] text-muted-foreground">
-                    {job.budgetAmount} {job.budgetCurrency} · {job.status} ·
-                    Model {job.requiredModelId}
-                    {job.acpExpiresAt != null
-                        ? ` · Expires ${job.acpExpiresAt.toLocaleDateString(
-                              undefined,
-                              { dateStyle: "medium" }
-                          )}`
-                        : ""}
+                    {formatJobBudgetStatusExpiryLine(job)} · Model{" "}
+                    {job.requiredModelId}
                 </p>
                 <p className="text-xs text-muted-foreground">
                     Client: {job.clientName}

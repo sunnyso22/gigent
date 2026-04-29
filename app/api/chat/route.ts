@@ -24,7 +24,7 @@ export const POST = async (req: Request) => {
         return unauthorizedJson()
     }
 
-    let body: { messages: UIMessage[]; model?: string }
+    let body: { messages: UIMessage[]; model?: string; kiteWalletAddress?: string }
 
     try {
         body = await req.json()
@@ -32,7 +32,13 @@ export const POST = async (req: Request) => {
         return jsonError(400, "Invalid JSON body")
     }
 
-    const { messages, model: modelFromBody } = body
+    const { messages, model: modelFromBody, kiteWalletAddress: rawWallet } =
+        body
+
+    const kiteWalletAddress =
+        typeof rawWallet === "string" && rawWallet.trim()
+            ? rawWallet.trim()
+            : undefined
 
     if (!Array.isArray(messages)) {
         return jsonError(400, "messages must be an array")
@@ -56,7 +62,9 @@ export const POST = async (req: Request) => {
 
     const gatewayModel = createGatewayProvider({ apiKey: userApiKey })(modelId)
 
-    const agentJobTools = createAgentJobTools(session.user.id)
+    const agentJobTools = createAgentJobTools(session.user.id, {
+        kiteWalletAddress,
+    })
 
     try {
         const result = streamText({
@@ -72,7 +80,7 @@ export const POST = async (req: Request) => {
 
 **Delivery visibility:** The client sees delivery content only after on-chain status is **submitted** (or terminal). The provider always sees their own submission when allowed. No HTTP paywall.
 
-**Wallet:** Link a **Kite Testnet** wallet (eip155:2368) in **Settings** before bid_accept (provider payout address) and for all contract txs (createJob, setBudget, setProvider, fund, submit, complete, reject).
+**Wallet:** Use a **Kite Testnet** wallet (chain **2368**) connected in the browser for contract calldata (createJob uses your address as evaluator) and for **bid_place** (records your payout address). bid_accept and all other contract txs also require that wallet for signing.
 
 **On-chain immutability:** After createJob, contract fields (description, budget, expiry, hook, etc.) cannot be edited. job_update only applies to DB listing fields **before** acp_job_id exists; otherwise return the immutability guidance and suggest job_reject (when the chain allows) then job_create.
 

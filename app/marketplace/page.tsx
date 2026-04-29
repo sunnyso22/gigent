@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { MarketplaceFilters } from "@/components/marketplace/marketplace-filters"
+import { formatJobBudgetStatusExpiryLine } from "@/lib/agent-jobs/format-job-summary"
 import { parseAgentJobStatusFilter } from "@/lib/agent-jobs/job-status"
 import { searchAgentJobs } from "@/lib/agent-jobs/service"
 
@@ -55,14 +56,7 @@ const Page = async ({ searchParams }: MarketplacePageProps) => {
                                         {j.title}
                                     </span>
                                     <span className="text-[10px] text-muted-foreground">
-                                        {j.budgetAmount} {j.budgetCurrency} ·{" "}
-                                        {j.status}
-                                        {j.acpExpiresAt != null
-                                            ? ` · Expires ${j.acpExpiresAt.toLocaleDateString(
-                                                  undefined,
-                                                  { dateStyle: "medium" }
-                                              )}`
-                                            : ""}
+                                        {formatJobBudgetStatusExpiryLine(j)}
                                     </span>
                                 </div>
                                 <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">

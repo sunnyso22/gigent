@@ -2,7 +2,7 @@
 
 export const KITE_TESTNET_CHAIN_ID = 2368
 
-/** CAIP-2 chain id for wallet linking / SIWE message. */
+/** CAIP-2 chain id for Kite Testnet (eip155). */
 export const KITE_CAIP2_NETWORK = `eip155:${KITE_TESTNET_CHAIN_ID}` as const
 
 export const KITE_RPC_URL =

@@ -1,4 +1,4 @@
-/** Re-export Kite Testnet id for wallet linking (ERC-8183 / USDT). */
+/** Re-export Kite Testnet id (ERC-8183 / USDT). */
 export {
     KITE_CAIP2_NETWORK,
     KITE_TESTNET_CHAIN_ID,

@@ -9,6 +9,12 @@ import {
     useSwitchChain,
 } from "wagmi"
 
+import {
+    getMarketplaceJobWithBidsAction,
+    linkJobToAcpAction,
+    syncMarketplaceJobFromChainAction,
+} from "@/app/actions/marketplace-job"
+
 import { agenticCommerceAbi } from "@/lib/acp/abi"
 import { AcpJobStatus, KITE_TESTNET_CHAIN_ID } from "@/lib/acp/constants"
 import { encodeAcpSetBudget } from "@/lib/acp/encode-calls"
@@ -68,15 +74,11 @@ const useAgentChatOnchainEffects = (
 
         void (async () => {
             try {
-                const jRes = await fetch(`/api/marketplace/jobs/${jobId}`, {
-                    credentials: "include",
-                })
+                const jRes = await getMarketplaceJobWithBidsAction(jobId)
                 if (!jRes.ok) {
                     return
                 }
-                const body = (await jRes.json()) as {
-                    job?: { acpJobId?: string | null }
-                }
+                const body = { job: jRes.job }
                 if (body.job?.acpJobId) {
                     return
                 }
@@ -112,27 +114,21 @@ const useAgentChatOnchainEffects = (
                 let resolved: bigint | null = null
                 let lastErr = "Could not link on-chain job id"
                 for (const candidate of candidates) {
-                    const res = await fetch(
-                        `/api/marketplace/jobs/${jobId}/link-acp`,
-                        {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            credentials: "include",
-                            body: JSON.stringify({
-                                acpJobId: candidate.toString(),
-                            }),
-                        }
-                    )
+                    if (!address) {
+                        break
+                    }
+                    const res = await linkJobToAcpAction({
+                        jobId,
+                        acpJobId: candidate.toString(),
+                        clientWalletAddress: getAddress(
+                            address as `0x${string}`
+                        ),
+                    })
                     if (res.ok) {
                         resolved = candidate
                         break
                     }
-                    const j = (await res.json().catch(() => ({}))) as {
-                        error?: string
-                    }
-                    if (j.error) {
-                        lastErr = j.error
-                    }
+                    lastErr = res.error
                 }
 
                 if (resolved === null) {
@@ -152,18 +148,9 @@ const useAgentChatOnchainEffects = (
                     hash: hashBudget,
                 })
 
-                const syncRes = await fetch(
-                    `/api/marketplace/jobs/${jobId}/sync-chain`,
-                    {
-                        method: "POST",
-                        credentials: "include",
-                    }
-                )
+                const syncRes = await syncMarketplaceJobFromChainAction(jobId)
                 if (!syncRes.ok) {
-                    const j = (await syncRes.json().catch(() => ({}))) as {
-                        error?: string
-                    }
-                    throw new Error(j.error ?? "Sync failed")
+                    throw new Error(syncRes.error ?? "Sync failed")
                 }
             } catch (e) {
                 console.error("[auto-publish job_create]", e)
@@ -178,6 +165,7 @@ const useAgentChatOnchainEffects = (
         chainId,
         switchChain,
         sendTransaction,
+        address,
     ])
 
     React.useEffect(() => {
@@ -210,13 +198,9 @@ const useAgentChatOnchainEffects = (
                     "job_reject",
                 ])
                 if (preflightTools.has(toolName)) {
-                    const jRes = await fetch(`/api/marketplace/jobs/${jobId}`, {
-                        credentials: "include",
-                    })
+                    const jRes = await getMarketplaceJobWithBidsAction(jobId)
                     if (jRes.ok) {
-                        const body = (await jRes.json()) as {
-                            job?: { acpJobId?: string | null }
-                        }
+                        const body = { job: jRes.job }
                         const rawId = body.job?.acpJobId?.trim() ?? ""
                         if (/^\d+$/.test(rawId)) {
                             const commerce = getAddress(bundle.commerceAddress)
@@ -271,13 +255,7 @@ const useAgentChatOnchainEffects = (
                                 skipReject
                             ) {
                                 stepsCompletedKeysRef.current.add(key)
-                                await fetch(
-                                    `/api/marketplace/jobs/${jobId}/sync-chain`,
-                                    {
-                                        method: "POST",
-                                        credentials: "include",
-                                    }
-                                )
+                                await syncMarketplaceJobFromChainAction(jobId)
                                 return
                             }
                         }
@@ -299,18 +277,9 @@ const useAgentChatOnchainEffects = (
                     })
                 }
 
-                const syncRes = await fetch(
-                    `/api/marketplace/jobs/${jobId}/sync-chain`,
-                    {
-                        method: "POST",
-                        credentials: "include",
-                    }
-                )
+                const syncRes = await syncMarketplaceJobFromChainAction(jobId)
                 if (!syncRes.ok) {
-                    const j = (await syncRes.json().catch(() => ({}))) as {
-                        error?: string
-                    }
-                    throw new Error(j.error ?? "Sync failed")
+                    throw new Error(syncRes.error ?? "Sync failed")
                 }
                 stepsCompletedKeysRef.current.add(key)
             } catch (e) {

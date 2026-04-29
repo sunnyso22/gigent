@@ -2,6 +2,10 @@
 
 import * as React from "react"
 import type { UIMessage } from "ai"
+import {
+    listAgentsAction,
+    getAgentConversationAction,
+} from "@/app/actions/agents"
 import { isChatModelId, DEFAULT_CHAT_MODEL_ID, type ChatModelId } from "@/lib/agents/models"
 import { AgentsChatCore } from "@/components/agents/agents-chat-core"
 import { AgentsSidebar } from "@/components/agents/agents-sidebar"
@@ -27,7 +31,7 @@ export const Agents = ({ hasApiKey }: AgentsProps) => {
     )
     const [conversationLoading, setConversationLoading] = React.useState(false)
     const [showToolLogs, setShowToolLogs] = React.useState(false)
-    const loadConversationAbortRef = React.useRef<AbortController | null>(null)
+    const loadConversationGenRef = React.useRef(0)
 
     React.useEffect(() => {
         const sync = () => {
@@ -43,12 +47,11 @@ export const Agents = ({ hasApiKey }: AgentsProps) => {
     }, [])
 
     const refreshAgents = React.useCallback(async () => {
-        const res = await fetch("/api/agents")
-        if (!res.ok) {
+        const result = await listAgentsAction()
+        if (!result.ok) {
             return
         }
-        const data = (await res.json()) as { agents: AgentListItem[] }
-        setAgents(data.agents)
+        setAgents(result.agents)
     }, [])
 
     React.useEffect(() => {
@@ -63,47 +66,34 @@ export const Agents = ({ hasApiKey }: AgentsProps) => {
         if (agentId === chatSession.id) {
             return
         }
-        loadConversationAbortRef.current?.abort()
-        const ac = new AbortController()
-        loadConversationAbortRef.current = ac
+        const myGen = ++loadConversationGenRef.current
         setConversationLoading(true)
         try {
-            const res = await fetch(`/api/agents/${agentId}`, {
-                signal: ac.signal,
-            })
-            if (!res.ok) {
+            const result = await getAgentConversationAction(agentId)
+            if (myGen !== loadConversationGenRef.current) {
                 return
             }
-            const data = (await res.json()) as {
-                agent: { modelId: string | null }
-                messages: UIMessage[]
-            }
-            if (ac.signal.aborted) {
+            if (!result.ok) {
                 return
             }
             setChatSession({
                 id: agentId,
-                initialMessages: data.messages ?? [],
+                initialMessages: result.messages ?? [],
             })
-            if (data.agent?.modelId && isChatModelId(data.agent.modelId)) {
-                setSelectedModelId(data.agent.modelId)
+            if (result.agent?.modelId && isChatModelId(result.agent.modelId)) {
+                setSelectedModelId(result.agent.modelId)
             }
         } catch (e) {
-            if (e instanceof DOMException && e.name === "AbortError") {
-                return
-            }
             console.error("[agents] openAgent", e)
         } finally {
-            if (loadConversationAbortRef.current === ac) {
+            if (myGen === loadConversationGenRef.current) {
                 setConversationLoading(false)
-                loadConversationAbortRef.current = null
             }
         }
     }
 
     const onNewChat = () => {
-        loadConversationAbortRef.current?.abort()
-        loadConversationAbortRef.current = null
+        loadConversationGenRef.current += 1
         setConversationLoading(false)
         setChatSession({
             id: crypto.randomUUID(),

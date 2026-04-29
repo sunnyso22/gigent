@@ -1,62 +1,23 @@
 import { NextResponse } from "next/server"
 
+import { getJobWithBidsForViewer } from "@/lib/agent-jobs/job-for-viewer"
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
-import {
-    canViewerAccessJobDelivery,
-    shouldHideDeliveryFromClientUntilOnChainSubmit,
-} from "@/lib/agent-jobs/delivery/visibility"
-import {
-    getAgentJobById,
-    listBidsForJob,
-    updateAgentJobAsClient,
-} from "@/lib/agent-jobs/service"
+import { updateAgentJobAsClient } from "@/lib/agent-jobs/service"
 
 type RouteParams = { params: Promise<{ jobId: string }> }
 
 export const GET = async (_req: Request, { params }: RouteParams) => {
     const { jobId } = await params
-    const job = await getAgentJobById(jobId)
-    if (!job) {
+    const session = await getSession()
+    const viewerId = session?.user?.id ?? null
+
+    const data = await getJobWithBidsForViewer(jobId, viewerId)
+    if (!data) {
         return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
-    const [session, bids] = await Promise.all([
-        getSession(),
-        listBidsForJob(jobId),
-    ])
-    const canViewDelivery = canViewerAccessJobDelivery(
-        session?.user?.id,
-        job.clientUserId,
-        job.providerUserId
-    )
-
-    let jobResponse = canViewDelivery
-        ? job
-        : {
-              ...job,
-              deliveryPayload: null,
-              submittedAt: null,
-          }
-
-    if (
-        canViewDelivery &&
-        session?.user?.id &&
-        shouldHideDeliveryFromClientUntilOnChainSubmit({
-            viewerUserId: session.user.id,
-            clientUserId: job.clientUserId,
-            acpJobId: job.acpJobId,
-            acpStatus: job.acpStatus,
-        })
-    ) {
-        jobResponse = {
-            ...job,
-            deliveryPayload: null,
-            submittedAt: null,
-        }
-    }
-
-    return NextResponse.json({ job: jobResponse, bids })
+    return NextResponse.json({ job: data.job, bids: data.bids })
 }
 
 export const PATCH = async (req: Request, { params }: RouteParams) => {

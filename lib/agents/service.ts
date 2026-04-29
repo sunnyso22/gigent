@@ -70,14 +70,10 @@ export const getAgentForUser = async (
     return rows[0] ?? null
 }
 
-export const getAgentMessages = async (
-    userId: string,
+/** Loads messages for `agentId`. Only call after access is verified (e.g. `getAgentForUser`). */
+export const listAgentMessagesForAgentId = async (
     agentId: string
-): Promise<UIMessage[] | null> => {
-    const agent = await getAgentForUser(userId, agentId)
-    if (!agent) {
-        return null
-    }
+): Promise<UIMessage[]> => {
     const rows = await db
         .select({
             id: agentMessage.id,
@@ -97,6 +93,17 @@ export const getAgentMessages = async (
             ? { metadata: row.metadata as UIMessage["metadata"] }
             : {}),
     }))
+}
+
+export const getAgentMessages = async (
+    userId: string,
+    agentId: string
+): Promise<UIMessage[] | null> => {
+    const agent = await getAgentForUser(userId, agentId)
+    if (!agent) {
+        return null
+    }
+    return listAgentMessagesForAgentId(agentId)
 }
 
 export type UpsertAgentResult =
@@ -122,42 +129,36 @@ export const upsertAgentWithMessages = async (input: {
         return { ok: false, error: "no_api_key" }
     }
 
-    const existing = await db
-        .select({ userId: userAgent.userId })
+    const existingRows = await db
+        .select({
+            userId: userAgent.userId,
+            title: userAgent.title,
+            modelId: userAgent.modelId,
+        })
         .from(userAgent)
         .where(eq(userAgent.id, input.agentId))
         .limit(1)
 
-    if (existing[0] && existing[0].userId !== input.userId) {
+    const existing = existingRows[0]
+
+    if (existing && existing.userId !== input.userId) {
         return { ok: false, error: "forbidden" }
     }
 
-    if (existing[0]) {
-        const prevRow = await db
-            .select({
-                title: userAgent.title,
-                modelId: userAgent.modelId,
-            })
-            .from(userAgent)
-            .where(eq(userAgent.id, input.agentId))
-            .limit(1)
-        const prevMeta = prevRow[0]
-        const prevMessages =
-            (await getAgentMessages(input.userId, input.agentId)) ?? []
+    if (existing) {
+        const prevMessages = await listAgentMessagesForAgentId(input.agentId)
 
         const sameMessages = messagesPayloadEqual(prevMessages, input.messages)
-        const sameMeta =
-            prevMeta !== undefined &&
-            agentMetaEqual(
-                { title: prevMeta.title, modelId: prevMeta.modelId },
-                { title: input.title, modelId: input.modelId }
-            )
+        const sameMeta = agentMetaEqual(
+            { title: existing.title, modelId: existing.modelId },
+            { title: input.title, modelId: input.modelId }
+        )
 
         if (sameMessages && sameMeta) {
             return { ok: true }
         }
 
-        if (sameMessages && !sameMeta && prevMeta) {
+        if (sameMessages && !sameMeta) {
             await db
                 .update(userAgent)
                 .set({
@@ -170,7 +171,7 @@ export const upsertAgentWithMessages = async (input: {
     }
 
     await db.transaction(async (tx) => {
-        if (existing[0]) {
+        if (existing) {
             await tx
                 .update(userAgent)
                 .set({

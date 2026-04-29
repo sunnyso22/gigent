@@ -24,9 +24,8 @@ import {
 import { deliverableCommitmentBytes32 } from "@/lib/acp/deliverable-commitment"
 import { syncAgentJobFromChainByDbId } from "@/lib/acp/sync-agent-job"
 import { formatUsdtWei, usdtDecimalToWei } from "@/lib/acp/usdt-amount"
-import { agentJob, agentJobBid, user, userWallet } from "@/lib/db/schema"
+import { agentJob, agentJobBid, user } from "@/lib/db/schema"
 import { db } from "@/lib/db"
-import { KITE_CAIP2_NETWORK } from "@/lib/wallet/constants"
 import { getAddress, zeroAddress, type Address } from "viem"
 
 import { readAcpJob } from "@/lib/acp/read-job"
@@ -189,10 +188,12 @@ export type GetCreateJobOnChainPayloadResult =
       }
     | { ok: false; error: string }
 
-/** Calldata for `createJob` on Kite (evaluator = linked wallet; provider/hook = zero). */
+/** Calldata for `createJob` on Kite (evaluator = client wallet; provider/hook = zero). */
 export const getCreateJobOnChainPayload = async (input: {
     userId: string
     jobId: string
+    /** Checksummed 0x address from the connected browser wallet. */
+    evaluatorAddress: string | undefined
 }): Promise<GetCreateJobOnChainPayloadResult> => {
     const [job] = await db
         .select()
@@ -226,23 +227,19 @@ export const getCreateJobOnChainPayload = async (input: {
         return { ok: false, error: "Job is missing expiry timestamp" }
     }
 
-    const [walletRow] = await db
-        .select({ address: userWallet.address })
-        .from(userWallet)
-        .where(
-            and(
-                eq(userWallet.userId, input.userId),
-                eq(userWallet.chainId, KITE_CAIP2_NETWORK)
-            )
-        )
-        .limit(1)
-
-    if (!walletRow?.address) {
+    const rawEval = input.evaluatorAddress?.trim()
+    if (!rawEval) {
         return {
             ok: false,
             error:
-                "Link your Kite Testnet wallet in Settings before publishing on-chain.",
+                "Connect your Kite Testnet wallet in the header or Settings so createJob can use your address as evaluator.",
         }
+    }
+    let evaluator: Address
+    try {
+        evaluator = getAddress(rawEval as Address)
+    } catch {
+        return { ok: false, error: "Invalid evaluator wallet address" }
     }
 
     const budget = job.acpBudget?.trim() ?? "0"
@@ -252,7 +249,7 @@ export const getCreateJobOnChainPayload = async (input: {
 
     const createJobData = encodeAcpCreateJob({
         provider: zeroAddress,
-        evaluator: getAddress(walletRow.address as Address),
+        evaluator,
         expiredAt: BigInt(Math.floor(job.acpExpiresAt.getTime() / 1000)),
         description: acpDesc,
         hook: zeroAddress,
@@ -272,6 +269,8 @@ export const linkDbJobToAcpJobId = async (input: {
     userId: string
     jobId: string
     acpJobId: string
+    /** Connected client wallet that called `createJob` on-chain. */
+    clientWalletAddress: string
 }) => {
     const acpIdRaw = input.acpJobId.trim()
     if (!/^\d+$/.test(acpIdRaw)) {
@@ -294,29 +293,26 @@ export const linkDbJobToAcpJobId = async (input: {
         return { ok: false as const, error: "Job is already linked on-chain" }
     }
 
-    const [walletRow] = await db
-        .select({ address: userWallet.address })
-        .from(userWallet)
-        .where(
-            and(
-                eq(userWallet.userId, input.userId),
-                eq(userWallet.chainId, KITE_CAIP2_NETWORK)
-            )
-        )
-        .limit(1)
-
-    if (!walletRow?.address) {
-        return { ok: false as const, error: "Kite wallet not linked" }
+    const rawClient = input.clientWalletAddress.trim()
+    if (!rawClient) {
+        return {
+            ok: false as const,
+            error: "Client wallet address is required to verify the on-chain job",
+        }
+    }
+    let clientAddr: Address
+    try {
+        clientAddr = getAddress(rawClient as Address)
+    } catch {
+        return { ok: false as const, error: "Invalid client wallet address" }
     }
 
     const chainJob = await readAcpJob(BigInt(acpIdRaw))
-    if (
-        getAddress(chainJob.client) !== getAddress(walletRow.address as Address)
-    ) {
+    if (getAddress(chainJob.client) !== clientAddr) {
         return {
             ok: false as const,
             error:
-                "On-chain job client does not match your linked wallet address",
+                "On-chain job client does not match the wallet address you used for createJob",
         }
     }
 
@@ -599,6 +595,8 @@ export const placeBid = async (input: {
     userId: string
     jobId: string
     amount: string
+    /** Provider’s Kite wallet for escrow payout (must match their connected wallet). */
+    providerWalletAddress: string
 }) => {
     const [job] = await db
         .select()
@@ -636,6 +634,16 @@ export const placeBid = async (input: {
 
     parsePositiveAmount(input.amount)
 
+    let payout: Address
+    try {
+        payout = getAddress(input.providerWalletAddress.trim() as Address)
+    } catch {
+        return {
+            ok: false as const,
+            error: "Invalid provider wallet address",
+        }
+    }
+
     const id = crypto.randomUUID()
     try {
         await db.insert(agentJobBid).values({
@@ -645,6 +653,7 @@ export const placeBid = async (input: {
             amount: input.amount.trim(),
             currency: "USDT",
             status: "pending",
+            providerWalletAddress: payout,
         })
     } catch (e) {
         if (
@@ -770,23 +779,22 @@ export const acceptBid = async (input: {
             return { ok: false as const, error: "Bid is no longer pending" }
         }
 
-        const [walletRow] = await tx
-            .select({ address: userWallet.address })
-            .from(userWallet)
-            .where(
-                and(
-                    eq(userWallet.userId, bid.providerUserId),
-                    eq(userWallet.chainId, KITE_CAIP2_NETWORK)
-                )
-            )
-            .limit(1)
-
-        const providerPayoutAddress = walletRow?.address ?? null
+        const providerPayoutAddress = bid.providerWalletAddress?.trim() ?? null
         if (!providerPayoutAddress) {
             return {
                 ok: false as const,
                 error:
-                    "The provider must link a Kite Testnet wallet in Settings before their bid can be accepted.",
+                    "The provider’s bid is missing a Kite payout address. They should connect their wallet and place or update the bid with their address.",
+            }
+        }
+
+        let payoutNormalized: string
+        try {
+            payoutNormalized = getAddress(providerPayoutAddress as Address)
+        } catch {
+            return {
+                ok: false as const,
+                error: "Invalid provider payout address on this bid",
             }
         }
 
@@ -812,7 +820,7 @@ export const acceptBid = async (input: {
                 status: "funded",
                 providerUserId: bid.providerUserId,
                 acceptedBidId: input.bidId,
-                providerPayoutAddress,
+                providerPayoutAddress: payoutNormalized,
                 acpBudget: usdtDecimalToWei(bid.amount.trim()),
             })
             .where(eq(agentJob.id, input.jobId))
@@ -1133,6 +1141,7 @@ export const updateBidAmount = async (input: {
     jobId: string
     bidId: string
     amount: string
+    providerWalletAddress?: string
 }) => {
     const [bid] = await db
         .select()
@@ -1179,10 +1188,19 @@ export const updateBidAmount = async (input: {
 
     parsePositiveAmount(input.amount)
 
-    await db
-        .update(agentJobBid)
-        .set({ amount: input.amount.trim() })
-        .where(eq(agentJobBid.id, input.bidId))
+    const patch: { amount: string; providerWalletAddress?: string } = {
+        amount: input.amount.trim(),
+    }
+    const rawPayout = input.providerWalletAddress?.trim()
+    if (rawPayout) {
+        try {
+            patch.providerWalletAddress = getAddress(rawPayout as Address)
+        } catch {
+            return { ok: false as const, error: "Invalid provider wallet address" }
+        }
+    }
+
+    await db.update(agentJobBid).set(patch).where(eq(agentJobBid.id, input.bidId))
 
     return { ok: true as const }
 }

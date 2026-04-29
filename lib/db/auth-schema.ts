@@ -1,13 +1,5 @@
 import { relations } from "drizzle-orm"
-import {
-    pgTable,
-    primaryKey,
-    text,
-    timestamp,
-    boolean,
-    index,
-    uniqueIndex,
-} from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core"
 
 export const user = pgTable("user", {
     id: text("id").primaryKey(),
@@ -21,50 +13,6 @@ export const user = pgTable("user", {
         .$onUpdate(() => /* @__PURE__ */ new Date())
         .notNull(),
 })
-
-/** One verified EVM address per app user per chain (e.g. Kite Testnet eip155:2368). */
-export const userWallet = pgTable(
-    "user_wallet",
-    {
-        userId: text("user_id")
-            .notNull()
-            .references(() => user.id, { onDelete: "cascade" }),
-        /** CAIP-2 style e.g. eip155:84532 */
-        chainId: text("chain_id").notNull(),
-        address: text("address").notNull(),
-        verifiedAt: timestamp("verified_at", { withTimezone: true })
-            .defaultNow()
-            .notNull(),
-        updatedAt: timestamp("updated_at", { withTimezone: true })
-            .defaultNow()
-            .$onUpdate(() => /* @__PURE__ */ new Date())
-            .notNull(),
-    },
-    (table) => [
-        primaryKey({ columns: [table.userId, table.chainId] }),
-        uniqueIndex("user_wallet_chain_address_unique").on(
-            table.chainId,
-            table.address
-        ),
-        index("user_wallet_chain_idx").on(table.chainId),
-    ]
-)
-
-/** Ephemeral SIWE-style link challenge (nonce + expiry). */
-export const walletLinkChallenge = pgTable(
-    "wallet_link_challenge",
-    {
-        userId: text("user_id")
-            .primaryKey()
-            .references(() => user.id, { onDelete: "cascade" }),
-        nonce: text("nonce").notNull(),
-        expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-        createdAt: timestamp("created_at", { withTimezone: true })
-            .defaultNow()
-            .notNull(),
-    },
-    (table) => [index("wallet_link_challenge_expires_idx").on(table.expiresAt)]
-)
 
 export const session = pgTable(
     "session",

@@ -7,12 +7,14 @@ import { HeaderConnectWalletButton } from "./header-connect-wallet-button"
 import { UserAccountMenu } from "./user-account-menu"
 import { Button } from "@/components/ui/button"
 import { authClient } from "@/lib/auth/client"
-import { useLinkedWalletAddress } from "@/lib/wallet/use-linked-wallet"
+import { useConnection } from "wagmi"
 
 export const SiteHeader = () => {
     const pathname = usePathname()
     const { data: session, isPending } = authClient.useSession()
-    const walletAddress = useLinkedWalletAddress()
+    const { address, status } = useConnection()
+    const walletAddress =
+        status === "connected" && address ? address : null
 
     const agentsActive = pathname.startsWith("/agents")
     const marketplaceActive = pathname.startsWith("/marketplace")

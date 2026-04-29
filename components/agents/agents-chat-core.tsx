@@ -10,6 +10,9 @@ import {
     IconSend,
 } from "@tabler/icons-react"
 import { DefaultChatTransport, type UIMessage } from "ai"
+import { useConnection } from "wagmi"
+import { getAddress } from "viem"
+import { saveAgentConversationAction } from "@/app/actions/agents"
 import {
     CHAT_MODELS,
     DEFAULT_CHAT_MODEL_ID,
@@ -35,9 +38,6 @@ import { KeySavedBanner } from "@/components/agents/key-saved-banner"
 import { extractJobCreateOnChainFromMessages } from "@/lib/agents/extract-job-create-onchain"
 import { extractLatestOnChainStepsFromMessages } from "@/lib/agents/extract-onchain-steps"
 
-/** Updated in an effect so `DefaultChatTransport` can read the latest id without stale closures. */
-let latestOutboundChatModelId: ChatModelId = DEFAULT_CHAT_MODEL_ID
-
 const JOB_CREATE_TEMPLATE =
     "Create a job with below requirements:\n- Title: \n- Description: \n- Model: \n- Budget: \n- Expiry date:"
 
@@ -58,6 +58,10 @@ const ACCEPT_BID_CARET_INDEX =
 
 const LIST_ALL_BIDS_PROMPT = "List all bids of this job"
 
+/** Updated in an effect so `DefaultChatTransport` can read the latest id without stale closures. */
+let latestOutboundChatModelId: ChatModelId = DEFAULT_CHAT_MODEL_ID
+let latestOutboundKiteWallet: string | undefined
+
 export const AgentsChatCore = ({
     chatId,
     initialMessages,
@@ -77,6 +81,26 @@ export const AgentsChatCore = ({
     hasApiKey: boolean
     showToolLogs: boolean
 }) => {
+    const { address: connectedAddress, status: walletStatus } = useConnection()
+
+    React.useEffect(() => {
+        if (
+            walletStatus === "connected" &&
+            connectedAddress &&
+            connectedAddress.length > 0
+        ) {
+            try {
+                latestOutboundKiteWallet = getAddress(
+                    connectedAddress as `0x${string}`
+                )
+            } catch {
+                latestOutboundKiteWallet = undefined
+            }
+        } else {
+            latestOutboundKiteWallet = undefined
+        }
+    }, [walletStatus, connectedAddress])
+
     const transport = React.useMemo(
         () =>
             new DefaultChatTransport({
@@ -95,6 +119,12 @@ export const AgentsChatCore = ({
                         trigger,
                         messageId,
                         model: latestOutboundChatModelId,
+                        ...(latestOutboundKiteWallet
+                            ? {
+                                  kiteWalletAddress:
+                                      latestOutboundKiteWallet,
+                              }
+                            : {}),
                     },
                 }),
             }),
@@ -341,16 +371,13 @@ export const AgentsChatCore = ({
         const t = setTimeout(() => {
             void (async () => {
                 try {
-                    const res = await fetch(`/api/agents/${chatId}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            messages,
-                            title,
-                            modelId: selectedModelId,
-                        }),
+                    const result = await saveAgentConversationAction({
+                        agentId: chatId,
+                        messages,
+                        title,
+                        modelId: selectedModelId,
                     })
-                    if (res.ok) {
+                    if (result.ok) {
                         onPersisted()
                     }
                 } catch (e) {
@@ -445,7 +472,7 @@ export const AgentsChatCore = ({
                                                 </Link>
                                             </li>
                                             <li>Add your API key</li>
-                                            <li>Link your wallet address</li>
+                                            <li>Connect your Kite wallet (header or here)</li>
                                         </ol>
                                     </div>
                                 </div>

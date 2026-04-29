@@ -23,6 +23,7 @@ import {
     JOB_ONCHAIN_IMMUTABLE_GUIDANCE,
 } from "@/lib/agent-jobs/service"
 
+import type { AgentJobToolsContext } from "./types"
 import { parseAgentJobStatusFilter } from "@/lib/agent-jobs/job-status"
 
 import { budgetAmountSchema, keywordModeSchema } from "./schemas"
@@ -92,10 +93,10 @@ const normalizeAspectRatio = (
     return s.replace(/\s/g, "") as `${number}:${number}`
 }
 
-export const createJobsTools = (userId: string) => ({
+export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a decimal string (e.g. 10, 0.5, 1.23; converted to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata; with a linked wallet in Settings, the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
+            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a decimal string (e.g. 10, 0.5, 1.23; converted to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata when the user’s Kite wallet is connected in the browser (header/Settings); the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
         inputSchema: z.object({
             title: z.string().min(1),
             description: z.string().min(1),
@@ -115,6 +116,7 @@ export const createJobsTools = (userId: string) => ({
             const prep = await getCreateJobOnChainPayload({
                 userId,
                 jobId: id,
+                evaluatorAddress: ctx.kiteWalletAddress ?? undefined,
             })
             if (prep.ok) {
                 return {
@@ -126,7 +128,7 @@ export const createJobsTools = (userId: string) => ({
                         createJobData: prep.createJobData,
                         initialBudgetAmount: prep.initialBudgetAmount,
                     },
-                    message: `Saved job ${id}. If your wallet is connected (Settings), confirm createJob then setBudget when the extension prompts; the app will link and sync.`,
+                    message: `Saved job ${id}. With your wallet connected, confirm createJob then setBudget when the extension prompts; the app will link and sync.`,
                 }
             }
             return {

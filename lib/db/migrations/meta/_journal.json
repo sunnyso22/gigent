@@ -15,6 +15,13 @@
       "when": 1777285997061,
       "tag": "0001_outgoing_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777296000000,
+      "tag": "0002_drop_wallet_link_tables",
+      "breakpoints": true
     }
   ]
 }

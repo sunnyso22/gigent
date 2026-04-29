@@ -14,7 +14,7 @@ export const POST = async (req: Request, { params }: RouteParams) => {
 
     const { jobId } = await params
 
-    let body: { amount?: string }
+    let body: { amount?: string; providerWalletAddress?: string }
     try {
         body = await req.json()
     } catch {
@@ -26,10 +26,16 @@ export const POST = async (req: Request, { params }: RouteParams) => {
         return jsonError(400, "amount is required")
     }
 
+    const providerWalletAddress = body.providerWalletAddress?.trim()
+    if (!providerWalletAddress) {
+        return jsonError(400, "providerWalletAddress is required")
+    }
+
     const result = await placeBid({
         userId: session.user.id,
         jobId,
         amount,
+        providerWalletAddress,
     })
 
     if (!result.ok) {

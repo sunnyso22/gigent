@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server"
 import type { UIMessage } from "ai"
 
-import {
-    getAgentForUser,
-    getAgentMessages,
-    upsertAgentWithMessages,
-} from "@/lib/agents/service"
+import { agentConversationPayload } from "@/lib/agents/server-payloads"
+import { upsertAgentWithMessages } from "@/lib/agents/service"
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import { getSession } from "@/lib/auth/session"
 
@@ -18,22 +15,12 @@ export const GET = async (_req: Request, ctx: RouteCtx) => {
     }
 
     const { agentId } = await ctx.params
-    const agent = await getAgentForUser(session.user.id, agentId)
-    if (!agent) {
+    const data = await agentConversationPayload(session.user.id, agentId)
+    if (!data) {
         return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
-    const messages = (await getAgentMessages(session.user.id, agentId)) ?? []
-
-    return NextResponse.json({
-        agent: {
-            id: agent.id,
-            title: agent.title,
-            modelId: agent.modelId,
-            updatedAt: agent.updatedAt.toISOString(),
-        },
-        messages,
-    })
+    return NextResponse.json(data)
 }
 
 export const PUT = async (req: Request, ctx: RouteCtx) => {

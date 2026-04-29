@@ -1,10 +1,9 @@
 import { jsonError, unauthorizedJson } from "@/lib/api-response"
 import {
-    deleteUserAiGatewayApiKey,
-    getMaskedUserAiGatewayKey,
-    isValidAiGatewayApiKeyFormat,
-    upsertUserAiGatewayApiKey,
-} from "@/lib/ai-gateway"
+    getAiGatewaySettingsState,
+    removeUserAiGatewayKey,
+    saveUserAiGatewayKey,
+} from "@/lib/ai-gateway/settings-server"
 import { getSession } from "@/lib/auth/session"
 
 export const GET = async () => {
@@ -13,11 +12,8 @@ export const GET = async () => {
         return unauthorizedJson()
     }
 
-    const row = await getMaskedUserAiGatewayKey(session.user.id)
-    return Response.json({
-        configured: Boolean(row),
-        keyLast4: row?.keyLast4 ?? null,
-    })
+    const data = await getAiGatewaySettingsState(session.user.id)
+    return Response.json(data)
 }
 
 export const POST = async (req: Request) => {
@@ -38,35 +34,20 @@ export const POST = async (req: Request) => {
         return jsonError(400, "apiKey must be a string")
     }
 
-    const apiKey = raw.trim()
-    if (apiKey.length === 0) {
-        return jsonError(400, "apiKey is required")
-    }
-    if (!isValidAiGatewayApiKeyFormat(apiKey)) {
-        return jsonError(
-            400,
+    const result = await saveUserAiGatewayKey(session.user.id, raw)
+    if (!result.ok) {
+        const clientErrors = new Set([
+            "apiKey is required",
             "apiKey must be a Vercel AI Gateway key (starts with vck_).",
-        )
-    }
-    if (apiKey.length > 2048) {
-        return jsonError(400, "apiKey is too long")
-    }
-
-    try {
-        await upsertUserAiGatewayApiKey({
-            userId: session.user.id,
-            apiKey,
-        })
-    } catch (e) {
-        const message = e instanceof Error ? e.message : "Failed to save key"
-        console.error("[api/settings/ai-gateway POST]", e)
-        return jsonError(500, message)
+            "apiKey is too long",
+        ])
+        const status = clientErrors.has(result.error) ? 400 : 500
+        return jsonError(status, result.error)
     }
 
-    const row = await getMaskedUserAiGatewayKey(session.user.id)
     return Response.json({
-        configured: true,
-        keyLast4: row?.keyLast4 ?? null,
+        configured: result.configured,
+        keyLast4: result.keyLast4,
     })
 }
 
@@ -76,6 +57,6 @@ export const DELETE = async () => {
         return unauthorizedJson()
     }
 
-    await deleteUserAiGatewayApiKey(session.user.id)
+    await removeUserAiGatewayKey(session.user.id)
     return Response.json({ configured: false, keyLast4: null })
 }

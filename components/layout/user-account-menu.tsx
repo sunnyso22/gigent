@@ -20,7 +20,7 @@ import {
 import { requiresSessionPath } from "@/lib/auth/public-paths"
 import { authClient } from "@/lib/auth/client"
 import { formatShortWalletAddress } from "@/lib/wallet/format-address"
-import { useLinkedWalletAddress } from "@/lib/wallet/use-linked-wallet"
+import { useConnection } from "wagmi"
 
 type AccountUser = {
     name?: string | null
@@ -30,7 +30,7 @@ type AccountUser = {
 
 type UserAccountMenuProps = {
     user: AccountUser
-    /** `undefined` = not loaded yet; `null` = no wallet linked */
+    /** Connected browser wallet (`null` if none). */
     walletAddress?: string | null
 }
 
@@ -155,7 +155,9 @@ export const UserAccountMenu = ({
 
 export const SessionAccountMenu = () => {
     const { data: session, isPending } = authClient.useSession()
-    const walletAddress = useLinkedWalletAddress()
+    const { address, status } = useConnection()
+    const walletAddress =
+        status === "connected" && address ? address : null
 
     if (isPending) {
         return (

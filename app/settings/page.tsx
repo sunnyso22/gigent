@@ -16,13 +16,12 @@ type SettingsPageProps = {
 }
 
 const Page = async ({ searchParams }: SettingsPageProps) => {
-    const session = await getSession()
+    const [session, sp] = await Promise.all([getSession(), searchParams])
     if (!session?.user?.id) {
         redirect("/login?callbackUrl=/settings")
     }
 
     const hasKey = await hasUserAiGatewayApiKey(session.user.id)
-    const sp = await searchParams
     const showNeedsKeyBanner = sp.needsKey === "1"
 
     const backHref = hasKey ? "/agents" : "/"
