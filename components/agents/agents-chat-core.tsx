@@ -83,6 +83,28 @@ export const AgentsChatCore = ({
 }) => {
     const { address: connectedAddress, status: walletStatus } = useConnection()
 
+    const agentsWalletReady = React.useMemo(() => {
+        if (walletStatus !== "connected" || !connectedAddress) {
+            return false
+        }
+        try {
+            getAddress(connectedAddress as `0x${string}`)
+            return true
+        } catch {
+            return false
+        }
+    }, [walletStatus, connectedAddress])
+
+    const [walletGateMessage, setWalletGateMessage] = React.useState<
+        string | null
+    >(null)
+
+    React.useEffect(() => {
+        if (agentsWalletReady) {
+            setWalletGateMessage(null)
+        }
+    }, [agentsWalletReady])
+
     React.useEffect(() => {
         if (
             walletStatus === "connected" &&
@@ -145,6 +167,8 @@ export const AgentsChatCore = ({
     const isChatGenerating =
         status === "submitted" || status === "streaming"
     const composerBusy = conversationLoading || isChatGenerating
+    const composerNeedsWallet = !agentsWalletReady
+    const composerLocked = composerBusy || composerNeedsWallet
 
     React.useEffect(() => {
         if (hasApiKey) {
@@ -159,6 +183,9 @@ export const AgentsChatCore = ({
         setDraft(template)
         if (noKeyMessage) {
             setNoKeyMessage(null)
+        }
+        if (walletGateMessage) {
+            setWalletGateMessage(null)
         }
         requestAnimationFrame(() => {
             const el = textareaRef.current
@@ -192,6 +219,13 @@ export const AgentsChatCore = ({
             )
             return
         }
+        if (!agentsWalletReady) {
+            setWalletGateMessage(
+                "Connect your wallet using the button in the header before messaging your agent."
+            )
+            return
+        }
+        setWalletGateMessage(null)
         setNoKeyMessage(null)
         setStoppedByUser(false)
         clearError()
@@ -448,6 +482,15 @@ export const AgentsChatCore = ({
                     <KeySavedBanner />
                 </Suspense>
 
+                {composerNeedsWallet ? (
+                    <div
+                        className="shrink-0 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-center text-[10px] text-amber-950 dark:text-amber-100"
+                        role="status"
+                    >
+                        Connect your wallet in the header to use Agents.
+                    </div>
+                ) : null}
+
                 <div className="relative min-h-0 flex-1">
                     <ScrollArea className="h-full min-h-0">
                         <div
@@ -463,16 +506,20 @@ export const AgentsChatCore = ({
                                     <div className="max-w-sm text-xs text-muted-foreground">
                                         <ol className="list-inside list-decimal text-left">
                                             <li>
+                                                Connect your wallet (button in
+                                                the header)
+                                            </li>
+                                            <li>
                                                 Go to{" "}
                                                 <Link
                                                     href="/settings"
                                                     className="text-foreground underline underline-offset-2"
                                                 >
                                                     Settings
-                                                </Link>
+                                                </Link>{" "}
+                                                and add your API key
                                             </li>
-                                            <li>Add your API key</li>
-                                            <li>Connect your Kite wallet (header or here)</li>
+                                            <li>Start chatting or use shortcuts below</li>
                                         </ol>
                                     </div>
                                 </div>
@@ -586,11 +633,15 @@ export const AgentsChatCore = ({
 
                 <footer className="shrink-0 bg-background/80 px-4 py-3 backdrop-blur">
                     <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-                        {error || noKeyMessage ? (
+                        {error || noKeyMessage || walletGateMessage ? (
                             <div className="mb-2 rounded-none border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
-                                <p>{error?.message ?? noKeyMessage}</p>
-                                {error?.message.includes("Vercel AI Gateway") ||
-                                error?.message.includes("/settings") ||
+                                <p>
+                                    {error?.message ??
+                                        noKeyMessage ??
+                                        walletGateMessage}
+                                </p>
+                                {error?.message?.includes("Vercel AI Gateway") ||
+                                error?.message?.includes("/settings") ||
                                 noKeyMessage ? (
                                     <p className="mt-1.5">
                                         <Link
@@ -610,7 +661,7 @@ export const AgentsChatCore = ({
                                 size="sm"
                                 className="h-7 shrink-0 text-xs"
                                 onClick={insertJobTemplate}
-                                disabled={composerBusy}
+                                disabled={composerLocked}
                             >
                                 Create a job
                             </Button>
@@ -620,7 +671,7 @@ export const AgentsChatCore = ({
                                 size="sm"
                                 className="h-7 shrink-0 text-xs"
                                 onClick={insertBidTemplate}
-                                disabled={composerBusy}
+                                disabled={composerLocked}
                             >
                                 Place a bid
                             </Button>
@@ -630,7 +681,7 @@ export const AgentsChatCore = ({
                                 size="sm"
                                 className="h-7 shrink-0 text-xs"
                                 onClick={() => void submitListAllBidsPrompt()}
-                                disabled={composerBusy}
+                                disabled={composerLocked}
                             >
                                 List all bids
                             </Button>
@@ -640,7 +691,7 @@ export const AgentsChatCore = ({
                                 size="sm"
                                 className="h-7 shrink-0 text-xs"
                                 onClick={insertAcceptBidTemplate}
-                                disabled={composerBusy}
+                                disabled={composerLocked}
                             >
                                 Accept a bid
                             </Button>
@@ -654,6 +705,9 @@ export const AgentsChatCore = ({
                                     if (noKeyMessage) {
                                         setNoKeyMessage(null)
                                     }
+                                    if (walletGateMessage) {
+                                        setWalletGateMessage(null)
+                                    }
                                 }}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter" && !e.shiftKey) {
@@ -664,7 +718,7 @@ export const AgentsChatCore = ({
                                 placeholder="Create a job, place a bid, or finish the job…"
                                 className="max-h-40 min-h-14 resize-none border-0 bg-transparent px-2 py-2 text-xs shadow-none focus-visible:ring-0"
                                 aria-label="Message input"
-                                disabled={composerBusy}
+                                disabled={composerLocked}
                             />
                             <div className="flex flex-wrap items-center gap-2 px-1 pb-0.5">
                                 <div className="flex h-8 min-w-0 max-w-[14rem] shrink-0">
@@ -673,7 +727,7 @@ export const AgentsChatCore = ({
                                         onValueChange={(v) =>
                                             setSelectedModelId(v as ChatModelId)
                                         }
-                                        disabled={composerBusy}
+                                        disabled={composerLocked}
                                     >
                                         <SelectTrigger
                                             aria-label="Model"
@@ -730,7 +784,7 @@ export const AgentsChatCore = ({
                                         className="ml-auto shrink-0"
                                         onClick={() => void onSend()}
                                         disabled={
-                                            !draft.trim() || composerBusy
+                                            !draft.trim() || composerLocked
                                         }
                                     >
                                         Send
