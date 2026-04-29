@@ -5,6 +5,7 @@ import { useState } from "react"
 
 import { SiteHeader } from "@/components/layout/site-header"
 import { Button } from "@/components/ui/button"
+import { Loading } from "@/components/ui/loading"
 import {
     Card,
     CardContent,
@@ -70,25 +71,42 @@ const Page = () => {
                                 {error}
                             </p>
                         ) : null}
-                        <Button
-                            type="button"
-                            disabled={pending}
-                            className="w-full gap-2"
-                            onClick={() => signInWithSocial("github")}
-                        >
-                            <IconBrandGithub className="size-4" aria-hidden />
-                            {pending ? "Redirecting…" : "Sign in with GitHub"}
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            disabled={pending}
-                            className="w-full gap-2"
-                            onClick={() => signInWithSocial("google")}
-                        >
-                            <IconBrandGoogle className="size-4" aria-hidden />
-                            {pending ? "Redirecting…" : "Sign in with Google"}
-                        </Button>
+                        {pending ? (
+                            <Loading
+                                label="Redirecting…"
+                                className="w-full justify-center py-2"
+                            />
+                        ) : (
+                            <div className="flex gap-2">
+                                <Button
+                                    type="button"
+                                    className="flex-1 gap-2"
+                                    onClick={() =>
+                                        signInWithSocial("github")
+                                    }
+                                >
+                                    <IconBrandGithub
+                                        className="size-4"
+                                        aria-hidden
+                                    />
+                                    GitHub
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="flex-1 gap-2"
+                                    onClick={() =>
+                                        signInWithSocial("google")
+                                    }
+                                >
+                                    <IconBrandGoogle
+                                        className="size-4"
+                                        aria-hidden
+                                    />
+                                    Google
+                                </Button>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </main>
