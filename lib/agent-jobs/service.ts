@@ -130,7 +130,7 @@ export {
 
 export type BidStatus = "pending" | "accepted" | "rejected"
 
-/** Validates a positive whole-USDT amount (same on-chain scale as `usdtDecimalToWei`). */
+/** Validates a positive USDT amount (same base-unit mapping as `usdtDecimalToWei`). */
 const parsePositiveAmount = (raw: string): void => {
     const s = usdtDecimalToWei(raw)
     if (BigInt(s) <= BigInt(0)) {
@@ -143,7 +143,7 @@ export const createAgentJob = async (input: {
     title: string
     description: string
     requiredModelId: string
-    /** Whole USDT as a string (e.g. "50"); stored as payment-token base units in `acp_budget`. */
+    /** USDT amount as a string (e.g. "50", "0.5", "1.23"); stored as base units in `acp_budget`. */
     budgetAmount: string
     /** Unix seconds for on-chain `expiredAt`; default now + 7 days when omitted. */
     expiresAtUnix?: number
@@ -413,7 +413,7 @@ export type SearchAgentJobsInput = {
     limit?: number
 }
 
-/** Human whole USDT bound → same base units as `acp_budget` for SQL comparison. */
+/** Human USDT amount string → same base units as `acp_budget` for SQL comparison. */
 const parseBudgetBound = (raw: string): string => usdtDecimalToWei(raw)
 
 export const searchAgentJobs = async (input: SearchAgentJobsInput) => {

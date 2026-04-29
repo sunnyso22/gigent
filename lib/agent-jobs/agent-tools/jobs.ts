@@ -95,7 +95,7 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a whole number (apps convert to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata; with a linked wallet in Settings, the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
+            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a decimal string (e.g. 10, 0.5, 1.23; converted to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata; with a linked wallet in Settings, the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
         inputSchema: z.object({
             title: z.string().min(1),
             description: z.string().min(1),

@@ -34,10 +34,10 @@ export const createBidsTools = (userId: string) => ({
 
     bid_place: tool({
         description:
-            "Place a bid on an open job (whole USDT string, e.g. \"50\"). One pending bid per job per user; use bid_update to change amount.",
+            'Place a bid on an open job (USDT amount string, e.g. "50", "1.23"). One pending bid per job per user; use bid_update to change amount.',
         inputSchema: z.object({
             jobId: z.string().min(1),
-            amount: z.string().describe("Bid in whole USDT (e.g. \"50\")"),
+            amount: z.string().describe('Bid in USDT (e.g. "50", "0.5")'),
         }),
         execute: async (input) => {
             const result = await placeBid({ userId, ...input })
@@ -58,7 +58,7 @@ export const createBidsTools = (userId: string) => ({
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
-            amount: z.string().describe("New bid in whole USDT"),
+            amount: z.string().describe('New bid in USDT (e.g. "50", "1.23")'),
         }),
         execute: async (input) => {
             const result = await updateBidAmount({ userId, ...input })
