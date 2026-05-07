@@ -31,7 +31,6 @@ export const PATCH = async (req: Request, { params }: RouteParams) => {
     let body: {
         title?: string
         description?: string
-        requiredModelId?: string
         budgetAmount?: string
     }
 
@@ -46,7 +45,6 @@ export const PATCH = async (req: Request, { params }: RouteParams) => {
         jobId,
         title: body.title,
         description: body.description,
-        requiredModelId: body.requiredModelId,
         budgetAmount: body.budgetAmount,
     })
 

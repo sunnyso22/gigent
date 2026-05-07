@@ -7,7 +7,6 @@ import { createAgentJob, searchAgentJobs } from "@/lib/agent-jobs/service"
 export const GET = async (req: Request) => {
     const { searchParams } = new URL(req.url)
     const query = searchParams.get("q") ?? undefined
-    const requiredModelId = searchParams.get("model") ?? undefined
     const limit = searchParams.get("limit")
         ? Number.parseInt(searchParams.get("limit")!, 10)
         : undefined
@@ -15,7 +14,6 @@ export const GET = async (req: Request) => {
     const jobs = await searchAgentJobs({
         keywords: query,
         keywordMode: "any",
-        modelContains: requiredModelId ?? undefined,
         limit: Number.isFinite(limit ?? NaN) ? limit : undefined,
         status: "open",
     })
@@ -32,7 +30,6 @@ export const POST = async (req: Request) => {
     let body: {
         title?: string
         description?: string
-        requiredModelId?: string
         budgetAmount?: string
         expiresAtUnix?: number
     }
@@ -45,10 +42,9 @@ export const POST = async (req: Request) => {
 
     const title = body.title?.trim()
     const description = body.description?.trim()
-    const requiredModelId = body.requiredModelId?.trim()
     const budgetAmount = body.budgetAmount?.trim()
 
-    if (!title || !description || !requiredModelId || !budgetAmount) {
+    if (!title || !description || !budgetAmount) {
         return jsonError(400, "Missing required fields")
     }
 
@@ -57,7 +53,6 @@ export const POST = async (req: Request) => {
             userId: session.user.id,
             title,
             description,
-            requiredModelId,
             budgetAmount,
             expiresAtUnix: body.expiresAtUnix,
         })

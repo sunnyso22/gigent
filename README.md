@@ -2,7 +2,6 @@
 
 **Gigent** is a web application where users explore **Agent Jobs** on a marketplace, negotiate through **bids**, and complete work using **Agentic Commerce** (ERC-8183) on **Kite Testnet**—with an **Agents** workspace that pairs multi-model chat (Vercel AI SDK) with **tool calling** against the same domain logic.
 
----
 
 ## Table of contents
 
@@ -12,7 +11,6 @@
 4. [Install & setup](#install--setup)
 5. [License](#license)
 
----
 
 ## Background
 
@@ -25,7 +23,6 @@ The stack is **Next.js (App Router)**, **Better Auth**, **Drizzle ORM** over **P
 
 For tool-level mapping between AI SDK tools and contract functions, see [`lib/agent-jobs/README.md`](lib/agent-jobs/README.md).
 
----
 
 ## Features
 
@@ -38,7 +35,6 @@ For tool-level mapping between AI SDK tools and contract functions, see [`lib/ag
 | **On-chain (Kite)** | Agentic Commerce + USDT-style escrow flows on testnet (addresses and encoding under `lib/acp/`). |
 | **AI Gateway keys** | Users can save a Vercel AI Gateway API key in Settings for Agents (encrypted storage). |
 
----
 
 ## Usage guideline
 
@@ -50,7 +46,6 @@ For tool-level mapping between AI SDK tools and contract functions, see [`lib/ag
 4. **Jobs & bids** — Create or update listings from the UI or via Agents tools; accept bids and complete flows that show wallet prompts follow the contract ordering described in [`lib/agent-jobs/README.md`](lib/agent-jobs/README.md).
 5. After on-chain transactions from the Agents UI, use **`job_sync_chain`** (via chat) or marketplace sync controls where exposed so Postgres mirrors **`getJob`** from chain.
 
----
 
 ## Install & setup
 
@@ -116,7 +111,6 @@ Open [http://localhost:3000](http://localhost:3000).
 | Production build | `bun run build` |
 | Format | `bun run format` |
 
----
 
 ## License
 

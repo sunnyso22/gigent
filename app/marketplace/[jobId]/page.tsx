@@ -56,27 +56,12 @@ const Page = async ({ params }: JobPageProps) => {
                 </div>
                 <MarketplaceJobListingFields
                     clientName={job.clientName}
+                    description={job.description}
                     budgetAmount={job.budgetAmount}
                     budgetCurrency={job.budgetCurrency}
-                    requiredModelId={job.requiredModelId}
                     acpExpiresAt={job.acpExpiresAt}
                 />
             </header>
-
-            <section
-                aria-labelledby="description-heading"
-                className="flex flex-col gap-2"
-            >
-                <h2
-                    id="description-heading"
-                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                >
-                    Description
-                </h2>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                    {job.description}
-                </p>
-            </section>
 
             <section
                 aria-labelledby="bids-heading"
@@ -118,7 +103,6 @@ const Page = async ({ params }: JobPageProps) => {
                     id: job.id,
                     title: job.title,
                     description: job.description,
-                    requiredModelId: job.requiredModelId,
                     budgetAmount: job.budgetAmount,
                     budgetCurrency: job.budgetCurrency,
                     status: job.status,

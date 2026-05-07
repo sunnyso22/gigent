@@ -138,7 +138,6 @@ export const createAgentJob = async (input: {
     userId: string
     title: string
     description: string
-    requiredModelId: string
     /** USDT amount as a string (e.g. "50", "0.5", "1.23"); stored as base units in `acp_budget`. */
     budgetAmount: string
     /** Unix seconds for on-chain `expiredAt`; default now + 7 days when omitted. */
@@ -161,7 +160,6 @@ export const createAgentJob = async (input: {
         id,
         title: input.title.trim(),
         description: input.description.trim(),
-        requiredModelId: input.requiredModelId.trim(),
         clientUserId: input.userId,
         status: "open",
         acpBudget,
@@ -340,7 +338,6 @@ export const updateAgentJobAsClient = async (input: {
     jobId: string
     title?: string
     description?: string
-    requiredModelId?: string
     budgetAmount?: string
 }): Promise<UpdateAgentJobAsClientResult> => {
     const [job] = await db
@@ -377,9 +374,6 @@ export const updateAgentJobAsClient = async (input: {
     if (input.description !== undefined) {
         patch.description = input.description.trim()
     }
-    if (input.requiredModelId !== undefined) {
-        patch.requiredModelId = input.requiredModelId.trim()
-    }
     if (input.budgetAmount !== undefined) {
         parsePositiveAmount(input.budgetAmount)
         patch.acpBudget = usdtDecimalToWei(input.budgetAmount)
@@ -398,8 +392,6 @@ export type SearchAgentJobsInput = {
     keywords?: string
     keywordMode?: KeywordMatchMode
     status?: AgentJobStatus | AgentJobStatus[] | "all"
-    exactRequiredModelId?: string
-    modelContains?: string
     clientNameContains?: string
     minBudgetAmount?: string
     maxBudgetAmount?: string
@@ -424,8 +416,6 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
     const q = trimOptional(input.keywords)
     const keywordMode: KeywordMatchMode = input.keywordMode ?? "any"
 
-    const exactModel = trimOptional(input.exactRequiredModelId)
-    const modelHas = trimOptional(input.modelContains)
     const clientHas = trimOptional(input.clientNameContains)
 
     const conditions: SQL[] = []
@@ -441,14 +431,6 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
         }
     }
 
-    if (exactModel) {
-        conditions.push(eq(agentJob.requiredModelId, exactModel))
-    }
-    if (modelHas) {
-        conditions.push(
-            ilike(agentJob.requiredModelId, `%${escapeIlikePattern(modelHas)}%`)
-        )
-    }
     if (clientHas) {
         conditions.push(ilike(user.name, `%${escapeIlikePattern(clientHas)}%`))
     }
@@ -474,7 +456,6 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
                 return or(
                     ilike(agentJob.title, pattern),
                     ilike(agentJob.description, pattern),
-                    ilike(agentJob.requiredModelId, pattern),
                     ilike(user.name, pattern)
                 )
             })
@@ -493,7 +474,6 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
             id: agentJob.id,
             title: agentJob.title,
             description: agentJob.description,
-            requiredModelId: agentJob.requiredModelId,
             acpBudget: agentJob.acpBudget,
             acpExpiresAt: agentJob.acpExpiresAt,
             status: agentJob.status,
@@ -526,7 +506,6 @@ export const getAgentJobById = async (jobId: string) => {
             id: agentJob.id,
             title: agentJob.title,
             description: agentJob.description,
-            requiredModelId: agentJob.requiredModelId,
             acpBudget: agentJob.acpBudget,
             status: agentJob.status,
             clientUserId: agentJob.clientUserId,
@@ -1051,7 +1030,6 @@ export const listMyPostedJobs = async (userId: string, limit = 30) => {
             id: agentJob.id,
             title: agentJob.title,
             status: agentJob.status,
-            requiredModelId: agentJob.requiredModelId,
             acpBudget: agentJob.acpBudget,
             createdAt: agentJob.createdAt,
         })

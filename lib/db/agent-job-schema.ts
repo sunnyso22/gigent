@@ -18,7 +18,6 @@ export const agentJob = pgTable(
         title: text("title").notNull(),
         /** Long-form listing copy (editable in DB only; on-chain uses `acpDescription`). */
         description: text("description").notNull(),
-        requiredModelId: text("required_model_id").notNull(),
         /** App workflow: open | funded | submitted | completed | rejected | expired */
         status: text("status").notNull().default("open"),
         clientUserId: text("client_user_id")
@@ -62,7 +61,6 @@ export const agentJob = pgTable(
     },
     (table) => [
         index("agent_job_client_idx").on(table.clientUserId),
-        index("agent_job_model_idx").on(table.requiredModelId),
         index("agent_job_status_idx").on(table.status),
         index("agent_job_acp_job_idx").on(table.acpJobId),
     ]

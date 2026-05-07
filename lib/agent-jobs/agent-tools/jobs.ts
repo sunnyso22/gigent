@@ -96,11 +96,10 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): title, description, required AI model id (e.g. openai/gpt-5), USDT budget as a decimal string (e.g. 10, 0.5, 1.23; converted to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata when the user’s Kite wallet is connected in the browser (header/Settings); the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
+            "Create a new Agent Job (client): title, description, USDT budget as a decimal string (e.g. 10, 0.5, 1.23; converted to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata when the user’s Kite wallet is connected in the browser (header/Settings); the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
         inputSchema: z.object({
             title: z.string().min(1),
             description: z.string().min(1),
-            requiredModelId: z.string().min(1),
             budgetAmount: budgetAmountSchema,
             expiresAtUnix: z
                 .number()
@@ -148,14 +147,12 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 jobId: z.string().min(1),
                 title: z.string().min(1).optional(),
                 description: z.string().min(1).optional(),
-                requiredModelId: z.string().min(1).optional(),
                 budgetAmount: budgetAmountSchema.optional(),
             })
             .refine(
                 (v) =>
                     v.title !== undefined ||
                     v.description !== undefined ||
-                    v.requiredModelId !== undefined ||
                     v.budgetAmount !== undefined,
                 { message: "Provide at least one field to update" }
             ),
@@ -230,7 +227,7 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
 
     job_search: tool({
         description:
-            "Search jobs: keywords, status, model id substring, client display name, USDT budget range. Omit filters for recent jobs.",
+            "Search jobs: keywords, status, client display name, USDT budget range. Omit filters for recent jobs.",
         inputSchema: z.object({
             keywords: z.string().optional(),
             keywordMode: keywordModeSchema.optional(),
@@ -259,8 +256,6 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                     }
                     return parseAgentJobStatusFilter(v)
                 }),
-            exactRequiredModelId: z.string().optional(),
-            modelContains: z.string().optional(),
             clientNameContains: z.string().optional(),
             minBudgetAmount: z.string().optional(),
             maxBudgetAmount: z.string().optional(),
@@ -272,10 +267,6 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                     keywords: trimOptional(input.keywords),
                     keywordMode: input.keywordMode ?? "any",
                     status: input.status ?? "all",
-                    exactRequiredModelId: trimOptional(
-                        input.exactRequiredModelId
-                    ),
-                    modelContains: trimOptional(input.modelContains),
                     clientNameContains: trimOptional(input.clientNameContains),
                     minBudgetAmount: trimOptional(input.minBudgetAmount),
                     maxBudgetAmount: trimOptional(input.maxBudgetAmount),
@@ -288,7 +279,6 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                         id: j.id,
                         title: j.title,
                         description: j.description,
-                        requiredModelId: j.requiredModelId,
                         budget: `${j.budgetAmount} ${j.budgetCurrency}`,
                         status: j.status,
                         clientName: j.clientName,

@@ -8,7 +8,6 @@ type JobDetail = {
     id: string
     title: string
     description: string
-    requiredModelId: string
     budgetAmount: string
     budgetCurrency: string
     status: string

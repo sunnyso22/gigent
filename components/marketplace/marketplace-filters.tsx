@@ -97,7 +97,7 @@ export const MarketplaceFilters = ({
                 type="search"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                placeholder="Title, description, model name, or client name"
+                placeholder="Title, description, or client name"
                 className="h-9 flex-1 text-xs"
                 autoComplete="off"
             />

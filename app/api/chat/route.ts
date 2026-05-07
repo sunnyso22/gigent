@@ -110,7 +110,7 @@ export const POST = async (req: Request) => {
 
 **Status questions:** Do not infer job or bid status only from earlier chat. When the user asks about a job’s current state and you have (or can find) its id, call **job_get** (refreshes chain-mirrored fields when the job is on-chain). Use **bid_status** for your bids; use **job_get** for the job’s authoritative status.
 
-Filters: status open vs funded vs submitted; modelContains; budget filters use USDT amounts.
+Filters: status open vs funded vs submitted; budget filters use USDT amounts.
 
 Use tools to act; then summarize results clearly.`,
             providerOptions: {

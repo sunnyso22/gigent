@@ -63,8 +63,7 @@ const Page = async ({ searchParams }: MarketplacePageProps) => {
                                     {j.description}
                                 </p>
                                 <p className="mt-2 text-[10px] text-muted-foreground">
-                                    Model: {j.requiredModelId} · Client:{" "}
-                                    {j.clientName}
+                                    Client: {j.clientName}
                                 </p>
                             </Link>
                         </li>

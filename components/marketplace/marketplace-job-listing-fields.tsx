@@ -4,7 +4,6 @@ import {
     formatAgentJobStatusLabel,
     type AgentJobStatus,
 } from "@/lib/agent-jobs/job-status"
-import { labelForChatModelId } from "@/lib/agents/models"
 import { cn } from "@/lib/utils"
 
 const statusToneClasses = (raw: string): string => {
@@ -55,21 +54,20 @@ export const MarketplaceJobStatusBadge = ({
 
 type MarketplaceJobListingFieldsProps = {
     clientName: string
+    description: string
     budgetAmount: string
     budgetCurrency: string
-    requiredModelId: string
     acpExpiresAt: Date | null
 }
 
 const MarketplaceJobListingFields = ({
     clientName,
+    description,
     budgetAmount,
     budgetCurrency,
-    requiredModelId,
     acpExpiresAt,
 }: MarketplaceJobListingFieldsProps) => {
     const expiryText = formatJobExpiryDate(acpExpiresAt)
-    const modelLabel = labelForChatModelId(requiredModelId)
 
     return (
         <section
@@ -82,6 +80,14 @@ const MarketplaceJobListingFields = ({
                         Client
                     </dt>
                     <dd className="text-sm text-foreground">{clientName}</dd>
+                </div>
+                <div className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-start sm:gap-6">
+                    <dt className="pt-0.5 text-[11px] font-medium text-muted-foreground">
+                        Description
+                    </dt>
+                    <dd className="min-w-0 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                        {description}
+                    </dd>
                 </div>
                 <div className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-baseline sm:gap-6">
                     <dt className="text-[11px] font-medium text-muted-foreground">
@@ -96,13 +102,7 @@ const MarketplaceJobListingFields = ({
                 </div>
                 <div className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-baseline sm:gap-6">
                     <dt className="text-[11px] font-medium text-muted-foreground">
-                        Model
-                    </dt>
-                    <dd className="min-w-0 text-sm text-foreground">{modelLabel}</dd>
-                </div>
-                <div className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-baseline sm:gap-6">
-                    <dt className="text-[11px] font-medium text-muted-foreground">
-                        Deadline
+                        Expired At
                     </dt>
                     <dd className="text-sm leading-snug text-foreground">
                         {expiryText ? (
