@@ -39,10 +39,10 @@ import { extractJobCreateOnChainFromMessages } from "@/lib/agents/extract-job-cr
 import { extractLatestOnChainStepsFromMessages } from "@/lib/agents/extract-onchain-steps"
 
 const JOB_CREATE_TEMPLATE =
-    "Create a job with below requirements:\n- Title: \n- Description: \n- Budget: \n- Expiry date:"
+    "Create a job with below requirements:\n- Job description: \n- Budget:\n- Expiry date:"
 
 const JOB_CREATE_CARET_INDEX =
-    JOB_CREATE_TEMPLATE.indexOf("- Title: ") + "- Title: ".length
+    JOB_CREATE_TEMPLATE.indexOf("- Job description: ") + "- Job description: ".length
 
 const PLACE_BID_TEMPLATE =
     "Place a bid on below job:\n- Job name: \n- Client: \n- Amount: "

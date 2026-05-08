@@ -96,10 +96,21 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): title, description, USDT budget as a decimal string (e.g. 10, 0.5, 1.23; converted to ERC-20 base units for approve/setBudget), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). Saves the listing in the database and returns calldata when the user’s Kite wallet is connected in the browser (header/Settings); the Agents UI will prompt for createJob then setBudget on Kite Testnet automatically.",
+            "Create a new Agent Job (client): USDT budget as a decimal string (e.g. 10, 0.5, 1.23), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). **description** = the user’s full job scope copied **verbatim** from chat (never summarized). **title** = short off-chain headline only—you derive it from their text (≤120 chars). Saves the listing and returns calldata when the Kite wallet is connected; the UI prompts createJob + setBudget. After success, reply briefly—the wallet UI already showed the txs.",
         inputSchema: z.object({
-            title: z.string().min(1),
-            description: z.string().min(1),
+            title: z
+                .string()
+                .min(1)
+                .max(120)
+                .describe(
+                    "Short listing title for search/cards only (off-chain). Derive from the user’s job description; do not reuse this as the full description."
+                ),
+            description: z
+                .string()
+                .min(1)
+                .describe(
+                    "Exact job specification text from the user’s message (their Job description block). Character-for-character match aside from trimming outer whitespace—never summarize or rephrase."
+                ),
             budgetAmount: budgetAmountSchema,
             expiresAtUnix: z
                 .number()
@@ -127,14 +138,14 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                         createJobData: prep.createJobData,
                         initialBudgetAmount: prep.initialBudgetAmount,
                     },
-                    message: `Saved job ${id}. With your wallet connected, confirm createJob then setBudget when the extension prompts; the app will link and sync.`,
+                    message: `Job ${id} saved; createJob + setBudget run in the app wallet flow.`,
                 }
             }
             return {
                 success: true as const,
                 jobId: id,
                 onChain: { error: prep.error },
-                message: `Saved job ${id} in the app only. On-chain: ${prep.error}`,
+                message: `Job ${id} saved (DB only). On-chain prep failed: ${prep.error}`,
             }
         },
     }),
@@ -145,8 +156,14 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
         inputSchema: z
             .object({
                 jobId: z.string().min(1),
-                title: z.string().min(1).optional(),
-                description: z.string().min(1).optional(),
+                title: z.string().min(1).max(120).optional(),
+                description: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe(
+                        "If updating description before on-chain publish: use the user’s exact new wording—never summarize or rephrase."
+                    ),
                 budgetAmount: budgetAmountSchema.optional(),
             })
             .refine(
@@ -184,7 +201,7 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
 
     job_reject: tool({
         description:
-            "Client: abandon an off-chain-only open job, or after sending reject on Kite Agentic Commerce, sync terminal rejected/expired state. If the chain is not yet rejected, the tool returns onChain.steps to run reject() from the wallet, then job_sync_chain.",
+            "Client: abandon an off-chain-only open job, or after sending reject on Kite Agentic Commerce, sync terminal rejected/expired state. If the chain is not yet rejected, the tool returns onChain.steps to run reject() from the wallet, then job_sync_chain. After wallet steps, reply briefly.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const result = await rejectAgentJobAsClient({ userId, jobId })
@@ -351,7 +368,7 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
 
     job_submit: tool({
         description:
-            "As the assigned provider: upload final delivery (text / image / both). Saves delivery and deliverableCommitment in the app and returns onChain.steps for contract submit(); then job_sync_chain.",
+            "As the assigned provider: upload final delivery (text / image / both). Saves delivery and deliverableCommitment in the app and returns onChain.steps for contract submit(); then job_sync_chain. After submit txs in the UI, reply briefly—user already signed in the wallet.",
         inputSchema: jobSubmitInputSchema,
         execute: async (input) => {
             let payload: JobDeliveryPayload
@@ -422,7 +439,7 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                     success: true as const,
                     jobId: input.jobId,
                     deliverableCommitment: result.deliverableCommitment,
-                    message: `Delivery saved in the app. On-chain submit calldata unavailable: ${bundle.error}`,
+                    message: `Delivery saved; submit calldata unavailable: ${bundle.error}`,
                 }
             }
             return {
@@ -430,15 +447,14 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 jobId: input.jobId,
                 deliverableCommitment: result.deliverableCommitment,
                 onChain: bundle.bundle,
-                message:
-                    "Delivery saved in the app. Confirm submit on Kite (wallet), then job_sync_chain.",
+                message: `Delivery saved for job ${input.jobId}; job_sync_chain after chain confirms.`,
             }
         },
     }),
 
     job_complete: tool({
         description:
-            "As the client: align app with chain after delivery. If the chain is not completed yet, the tool returns onChain.steps so the user can send complete() from their wallet, then sync. After the wallet tx + sync, call this tool again to finalize DB.",
+            "As the client: align app with chain after delivery. If the chain is not completed yet, the tool returns onChain.steps so the user can send complete() from their wallet, then sync. After the wallet tx + sync, call this tool again to finalize DB. After wallet steps, reply briefly.",
         inputSchema: z.object({ jobId: z.string().min(1) }),
         execute: async ({ jobId }) => {
             const result = await completeJobAsClient({

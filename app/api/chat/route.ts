@@ -102,6 +102,8 @@ export const POST = async (req: Request) => {
 
 **On-chain immutability:** After createJob, contract fields (description, budget, expiry, hook, etc.) cannot be edited. job_update only applies to DB listing fields **before** acp_job_id exists; otherwise return the immutability guidance and suggest job_reject (when the chain allows) then job_create.
 
+**job_create wording:** Users often paste the full scope under **Job description** (see the “Create a job” shortcut)—that block is stored off-chain **and** drives the human-readable part of the on-chain description (the server adds a stable id tag). **\`job_create.description\` must be copied verbatim from the user’s job-description text**—same wording and structure aside from trimming leading/trailing whitespace around the whole block. Never summarize, shorten, rephrase, “clean up”, translate, or rearrange bullets in **\`description\`**. **\`title\`** is **off-chain only** (listing/search headline): derive a **short** label (about one line, ≤120 characters) from what they wrote—never substitute that shortened phrase for **\`description\`**.
+
 **Client tools:** job_create, job_update, job_reject, job_sync_chain, job_search, job_list_mine, job_get, job_review, job_complete, bid_list_for_job, bid_accept.
 
 **Provider tools:** job_search, job_get, job_sync_chain, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When job is funded: job_submit (saves delivery + deliverableCommitment; wallet must call submit on-chain).
@@ -112,7 +114,9 @@ export const POST = async (req: Request) => {
 
 Filters: status open vs funded vs submitted; budget filters use USDT amounts.
 
-Use tools to act; then summarize results clearly.`,
+Use tools to act; then summarize results clearly.
+
+**After wallet / on-chain tools:** The Agents UI runs wallet prompts automatically when tools return \`onChain\` calldata or \`onChain.steps\`. Users usually confirm transactions **before** they read your next reply—assume they already saw tx titles and counts in the wallet. Reply with a **brief outcome**: ids (job/bid), success vs blocked, and **only** what they should do next when needed (e.g. call **job_sync_chain** after broadcasts). Do **not** re-list each transaction, repeat “approve / setProvider / fund” breakdowns, paste hex/calldata, or give long signing tutorials unless something failed, is still pending, or the user asks for detail.`,
             providerOptions: {
                 gateway: {
                     user: session.user.id,

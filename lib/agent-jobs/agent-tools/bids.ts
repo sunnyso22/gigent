@@ -114,7 +114,7 @@ export const createBidsTools = (userId: string, ctx: AgentJobToolsContext) => ({
 
     bid_accept: tool({
         description:
-            "As client: accept one bid only after the job is published on Kite (acp_job_id). The provider’s bid must include their Kite payout address (they connect wallet when bidding). Updates DB to funded and returns onChain.steps: USDT approve, setProvider, setBudget, fund—then job_sync_chain.",
+            "As client: accept one bid only after the job is published on Kite (acp_job_id). The provider’s bid must include their Kite payout address (they connect wallet when bidding). Updates DB to funded and returns onChain.steps: USDT approve, setProvider, setBudget, fund—then job_sync_chain. After wallet completes the sequence, reply briefly—user already saw each tx.",
         inputSchema: z.object({
             jobId: z.string().min(1),
             bidId: z.string().min(1),
@@ -132,14 +132,14 @@ export const createBidsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 return {
                     success: true as const,
                     jobId: input.jobId,
-                    message: `Bid accepted in the app (funded). On-chain bundle unavailable: ${bundle.error}`,
+                    message: `Bid accepted (DB); on-chain bundle unavailable: ${bundle.error}`,
                 }
             }
             return {
                 success: true as const,
                 jobId: input.jobId,
                 onChain: bundle.bundle,
-                message: `Bid accepted in the app. Confirm ${bundle.bundle.steps.length} wallet transactions on Kite (approve USDT, setProvider, setBudget, fund), then use job_sync_chain.`,
+                message: `Bid accepted for job ${input.jobId}; funding runs in app wallet flow—job_sync_chain after.`,
             }
         },
     }),
