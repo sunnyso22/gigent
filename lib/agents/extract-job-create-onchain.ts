@@ -10,7 +10,9 @@ export type JobCreateOnChainPayload = {
 
 export type JobCreateToolOutput = {
     success?: boolean
-    jobId?: string
+    /** Internal row id for wallet linking—prefer **listingId**; **jobId** is legacy alias. */
+    listingId?: string
+    jobId?: string | null
     onChain?:
         | (JobCreateOnChainPayload & { error?: undefined })
         | { error: string }
@@ -34,7 +36,8 @@ export const extractJobCreateOnChainFromMessages = (
                 continue
             }
             const out = p.output as JobCreateToolOutput | null
-            if (!out?.success || !out.jobId || !out.onChain) {
+            const listingId = out?.listingId ?? out?.jobId
+            if (!out?.success || !listingId || !out.onChain) {
                 continue
             }
             if (typeof out.onChain === "object" && "error" in out.onChain) {
@@ -65,7 +68,7 @@ export const extractJobCreateOnChainFromMessages = (
                 continue
             }
             return {
-                jobId: String(out.jobId),
+                jobId: String(listingId),
                 onChain: {
                     chainId,
                     commerceAddress: oc.commerceAddress as `0x${string}`,

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 
 import { job as jobTable } from "@/lib/db/schema"
 import { db } from "@/lib/db"
+import { resolveAgentJobDbId } from "@/lib/agent-jobs/resolve-job-db-id"
 
 import { AGENTIC_COMMERCE_ADDRESS } from "./constants"
 import { readAcpJob } from "./read-job"
@@ -13,7 +14,12 @@ const addrOrNull = (a: string): string | null => {
     return s === ZERO ? null : s
 }
 
-export const syncAgentJobFromChainByDbId = async (dbJobId: string) => {
+export const syncAgentJobFromChainByDbId = async (jobId: string) => {
+    const dbJobId = await resolveAgentJobDbId(jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     const [row] = await db
         .select()
         .from(jobTable)
@@ -24,7 +30,7 @@ export const syncAgentJobFromChainByDbId = async (dbJobId: string) => {
         return { ok: false as const, error: "Job not found" }
     }
     if (!row.acpJobId) {
-        return { ok: false as const, error: "Job has no on-chain id yet" }
+        return { ok: false as const, error: "No Job ID yet—publish the job on Kite first" }
     }
 
     let j

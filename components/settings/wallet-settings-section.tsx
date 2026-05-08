@@ -57,7 +57,7 @@ export const WalletSettingsSection = () => {
                 <CardTitle className="font-heading text-base">Wallet</CardTitle>
                 <CardDescription className="text-xs">
                     Connect your browser wallet on Kite Testnet (chain 2368) when
-                    you use Agents or the marketplace on-chain. This wallet is
+                    you use Agents or the marketplace for contract signing. This wallet is
                     only stored in the browser session—not saved to your Gigent
                     account.
                 </CardDescription>

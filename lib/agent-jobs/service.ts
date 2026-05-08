@@ -36,11 +36,15 @@ import {
 } from "./delivery/payload"
 import { shouldExposeDeliveryFieldsToViewer } from "./delivery/visibility"
 import type { AgentJobStatus } from "./job-status"
+import {
+    jobTableLookupWhere,
+    resolveAgentJobDbId,
+} from "./resolve-job-db-id"
 
 export { syncAgentJobFromChainByDbId } from "@/lib/acp/sync-agent-job"
 
 export const JOB_ONCHAIN_IMMUTABLE_GUIDANCE =
-    "Fields committed in Agentic Commerce (on-chain description, budget, expiry, hook, etc.) cannot be edited after createJob. When the chain allows, use job_reject to terminate this job, then job_create for a replacement listing."
+    "Fields committed in Agentic Commerce (description, budget, expiry, hook, etc.) cannot be edited after createJob. When the chain allows, use job_reject to terminate this job, then job_create for a replacement listing."
 
 const escapeIlikePattern = (s: string) =>
     s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
@@ -190,10 +194,15 @@ export const getCreateJobOnChainPayload = async (input: {
     /** Checksummed 0x address from the connected browser wallet. */
     evaluatorAddress: string | undefined
 }): Promise<GetCreateJobOnChainPayloadResult> => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false, error: "Job not found" }
+    }
+
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -203,7 +212,7 @@ export const getCreateJobOnChainPayload = async (input: {
         return { ok: false, error: "Only the job client can publish on-chain" }
     }
     if (job.acpJobId) {
-        return { ok: false, error: "Job already has an on-chain id" }
+        return { ok: false, error: "Job already has a Job ID" }
     }
     if (job.status !== "open") {
         return { ok: false, error: "Only open listings can be published on-chain" }
@@ -272,10 +281,15 @@ export const linkDbJobToAcpJobId = async (input: {
         return { ok: false as const, error: "acpJobId must be a decimal string" }
     }
 
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -285,7 +299,7 @@ export const linkDbJobToAcpJobId = async (input: {
         return { ok: false as const, error: "Only the client can link this job" }
     }
     if (job.acpJobId) {
-        return { ok: false as const, error: "Job is already linked on-chain" }
+        return { ok: false as const, error: "Job already has a Job ID" }
     }
 
     const rawClient = input.clientWalletAddress.trim()
@@ -340,10 +354,15 @@ export const updateAgentJobAsClient = async (input: {
     description?: string
     budgetAmount?: string
 }): Promise<UpdateAgentJobAsClientResult> => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false, error: "Job not found" }
+    }
+
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -362,7 +381,7 @@ export const updateAgentJobAsClient = async (input: {
     if (job.status !== "open") {
         return {
             ok: false,
-            error: "Only open jobs can be edited before an on-chain job exists",
+            error: "Only open jobs can be edited before a Job ID exists",
         }
     }
 
@@ -383,7 +402,7 @@ export const updateAgentJobAsClient = async (input: {
         return { ok: false, error: "No fields to update" }
     }
 
-    await db.update(jobTable).set(patch).where(eq(jobTable.id, input.jobId))
+    await db.update(jobTable).set(patch).where(eq(jobTable.id, dbJobId))
 
     return { ok: true, applied: true }
 }
@@ -449,7 +468,12 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
     }
 
     if (q) {
+        const qTrim = q.trim()
         const tokens = tokenizeSearchQuery(q)
+        const onChainExact =
+            /^\d+$/.test(qTrim) ? eq(jobTable.acpJobId, qTrim) : null
+
+        let textMatch: SQL | null = null
         if (tokens.length > 0) {
             const perToken = tokens.map((tok) => {
                 const pattern = `%${escapeIlikePattern(tok)}%`
@@ -459,12 +483,19 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
                     ilike(user.name, pattern)
                 )
             })
-            const textMatch: SQL =
+            textMatch =
                 perToken.length === 1
                     ? perToken[0]!
                     : keywordMode === "all"
                       ? and(...perToken)!
                       : or(...perToken)!
+        }
+
+        if (onChainExact && textMatch) {
+            conditions.push(or(onChainExact, textMatch)!)
+        } else if (onChainExact) {
+            conditions.push(onChainExact)
+        } else if (textMatch) {
             conditions.push(textMatch)
         }
     }
@@ -480,6 +511,7 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
             clientUserId: jobTable.clientUserId,
             clientName: user.name,
             createdAt: jobTable.createdAt,
+            acpJobId: jobTable.acpJobId,
         })
         .from(jobTable)
         .innerJoin(user, eq(jobTable.clientUserId, user.id))
@@ -499,6 +531,11 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
 }
 
 export const getAgentJobById = async (jobId: string) => {
+    const lookup = jobTableLookupWhere(jobId)
+    if (!lookup) {
+        return null
+    }
+
     const providerUser = alias(user, "job_provider")
     const acceptedBid = alias(bidTable, "job_accepted_bid")
 
@@ -539,7 +576,7 @@ export const getAgentJobById = async (jobId: string) => {
             acceptedBid,
             eq(jobTable.acceptedBidId, acceptedBid.id)
         )
-        .where(eq(jobTable.id, jobId))
+        .where(lookup)
         .limit(1)
 
     if (!row) {
@@ -568,6 +605,11 @@ export const getAgentJobById = async (jobId: string) => {
 }
 
 export const listBidsForJob = async (jobId: string) => {
+    const dbJobId = await resolveAgentJobDbId(jobId)
+    if (!dbJobId) {
+        return []
+    }
+
     return db
         .select({
             id: bidTable.id,
@@ -581,7 +623,7 @@ export const listBidsForJob = async (jobId: string) => {
         })
         .from(bidTable)
         .innerJoin(user, eq(bidTable.providerUserId, user.id))
-        .where(eq(bidTable.jobId, jobId))
+        .where(eq(bidTable.jobId, dbJobId))
         .orderBy(desc(bidTable.createdAt))
 }
 
@@ -592,10 +634,15 @@ export const placeBid = async (input: {
     /** Provider’s Kite wallet for escrow payout (must match their connected wallet). */
     providerWalletAddress: string
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -613,7 +660,7 @@ export const placeBid = async (input: {
         .from(bidTable)
         .where(
             and(
-                eq(bidTable.jobId, input.jobId),
+                eq(bidTable.jobId, dbJobId),
                 eq(bidTable.providerUserId, input.userId)
             )
         )
@@ -642,7 +689,7 @@ export const placeBid = async (input: {
     try {
         await db.insert(bidTable).values({
             id,
-            jobId: input.jobId,
+            jobId: dbJobId,
             providerUserId: input.userId,
             amount: input.amount.trim(),
             currency: "USDT",
@@ -672,13 +719,18 @@ export const withdrawBid = async (input: {
     jobId: string
     bidId: string
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Bid not found for this job" }
+    }
+
     const [bid] = await db
         .select()
         .from(bidTable)
         .where(
             and(
                 eq(bidTable.id, input.bidId),
-                eq(bidTable.jobId, input.jobId)
+                eq(bidTable.jobId, dbJobId)
             )
         )
         .limit(1)
@@ -702,7 +754,7 @@ export const withdrawBid = async (input: {
     const [job] = await db
         .select({ status: jobTable.status })
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -725,11 +777,16 @@ export const acceptBid = async (input: {
     jobId: string
     bidId: string
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     return db.transaction(async (tx) => {
         const [job] = await tx
             .select()
             .from(jobTable)
-            .where(eq(jobTable.id, input.jobId))
+            .where(eq(jobTable.id, dbJobId))
             .limit(1)
 
         if (!job) {
@@ -751,7 +808,7 @@ export const acceptBid = async (input: {
             return {
                 ok: false as const,
                 error:
-                    "Finish job_create on-chain first (wallet prompts for createJob + setBudget) so this job has an on-chain id before you accept a bid.",
+                    "Publish the job on Kite first (wallet: createJob + setBudget) so it has a Job ID before you accept a bid.",
             }
         }
 
@@ -761,7 +818,7 @@ export const acceptBid = async (input: {
             .where(
                 and(
                     eq(bidTable.id, input.bidId),
-                    eq(bidTable.jobId, input.jobId)
+                    eq(bidTable.jobId, dbJobId)
                 )
             )
             .limit(1)
@@ -805,7 +862,7 @@ export const acceptBid = async (input: {
             .set({ status: "rejected" })
             .where(
                 and(
-                    eq(bidTable.jobId, input.jobId),
+                    eq(bidTable.jobId, dbJobId),
                     ne(bidTable.id, input.bidId),
                     eq(bidTable.status, "pending")
                 )
@@ -819,7 +876,7 @@ export const acceptBid = async (input: {
                 acceptedBidId: input.bidId,
                 acpBudget: usdtDecimalToWei(bid.amount.trim()),
             })
-            .where(eq(jobTable.id, input.jobId))
+            .where(eq(jobTable.id, dbJobId))
 
         return { ok: true as const }
     })
@@ -830,6 +887,11 @@ export const submitJobDelivery = async (input: {
     jobId: string
     deliveryPayload: unknown
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     const parsed = parseJobDeliveryPayload(input.deliveryPayload)
     if (!parsed.ok) {
         return { ok: false as const, error: parsed.error }
@@ -840,7 +902,7 @@ export const submitJobDelivery = async (input: {
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -867,7 +929,7 @@ export const submitJobDelivery = async (input: {
             deliverableCommitment: commitment,
             submittedAt: new Date(),
         })
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
 
     return {
         ok: true as const,
@@ -879,6 +941,11 @@ export const assertJobDeliveryUploadAllowed = async (input: {
     userId: string
     jobId: string
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     const [job] = await db
         .select({
             id: jobTable.id,
@@ -886,7 +953,7 @@ export const assertJobDeliveryUploadAllowed = async (input: {
             providerUserId: jobTable.providerUserId,
         })
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -911,12 +978,17 @@ export const confirmJobCompletion = async (input: {
     userId: string
     jobId: string
 }) => {
-    await syncAgentJobFromChainByDbId(input.jobId)
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
+    await syncAgentJobFromChainByDbId(dbJobId)
 
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -949,7 +1021,7 @@ export const confirmJobCompletion = async (input: {
                 status: "completed",
                 completedAt: job.completedAt ?? new Date(),
             })
-            .where(eq(jobTable.id, input.jobId))
+            .where(eq(jobTable.id, dbJobId))
     }
 
     return { ok: true as const }
@@ -959,10 +1031,15 @@ export const rejectAgentJobAsClient = async (input: {
     userId: string
     jobId: string
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" }
+    }
+
     const [job] = await db
         .select()
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {
@@ -976,22 +1053,22 @@ export const rejectAgentJobAsClient = async (input: {
         if (job.status !== "open") {
             return {
                 ok: false as const,
-                error: "Only open jobs without an on-chain id can be abandoned this way",
+                error: "Only open jobs without a Job ID can be abandoned this way",
             }
         }
         await db
             .update(jobTable)
             .set({ status: "rejected" })
-            .where(eq(jobTable.id, input.jobId))
+            .where(eq(jobTable.id, dbJobId))
         return { ok: true as const }
     }
 
-    await syncAgentJobFromChainByDbId(input.jobId)
+    await syncAgentJobFromChainByDbId(dbJobId)
 
     const [again] = await db
         .select({ acpStatus: jobTable.acpStatus })
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     const st = again?.acpStatus?.toLowerCase() ?? ""
@@ -1001,7 +1078,7 @@ export const rejectAgentJobAsClient = async (input: {
             .set({
                 status: st === "expired" ? "expired" : "rejected",
             })
-            .where(eq(jobTable.id, input.jobId))
+            .where(eq(jobTable.id, dbJobId))
         return { ok: true as const }
     }
 
@@ -1051,6 +1128,7 @@ export const listMyPostedJobs = async (userId: string, limit = 30) => {
             title: jobTable.title,
             status: jobTable.status,
             acpBudget: jobTable.acpBudget,
+            jobId: jobTable.acpJobId,
             createdAt: jobTable.createdAt,
         })
         .from(jobTable)
@@ -1070,6 +1148,7 @@ export const listMyBids = async (userId: string, limit = 30) => {
         .select({
             bidId: bidTable.id,
             jobId: bidTable.jobId,
+            publishedJobId: jobTable.acpJobId,
             amount: bidTable.amount,
             currency: bidTable.currency,
             bidStatus: bidTable.status,
@@ -1089,11 +1168,17 @@ export const getBidStatusForUser = async (input: {
     jobId?: string
 }) => {
     if (input.jobId) {
+        const dbJobId = await resolveAgentJobDbId(input.jobId)
+        if (!dbJobId) {
+            return []
+        }
         const bids = await db
             .select({
                 bidId: bidTable.id,
                 jobId: bidTable.jobId,
+                publishedJobId: jobTable.acpJobId,
                 amount: bidTable.amount,
+                currency: bidTable.currency,
                 bidStatus: bidTable.status,
                 jobTitle: jobTable.title,
                 jobStatus: jobTable.status,
@@ -1103,7 +1188,7 @@ export const getBidStatusForUser = async (input: {
             .where(
                 and(
                     eq(bidTable.providerUserId, input.userId),
-                    eq(bidTable.jobId, input.jobId)
+                    eq(bidTable.jobId, dbJobId)
                 )
             )
         return bids
@@ -1121,13 +1206,18 @@ export const updateBidAmount = async (input: {
     amount: string
     providerWalletAddress?: string
 }) => {
+    const dbJobId = await resolveAgentJobDbId(input.jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Bid not found for this job" }
+    }
+
     const [bid] = await db
         .select()
         .from(bidTable)
         .where(
             and(
                 eq(bidTable.id, input.bidId),
-                eq(bidTable.jobId, input.jobId)
+                eq(bidTable.jobId, dbJobId)
             )
         )
         .limit(1)
@@ -1151,7 +1241,7 @@ export const updateBidAmount = async (input: {
     const [job] = await db
         .select({ status: jobTable.status })
         .from(jobTable)
-        .where(eq(jobTable.id, input.jobId))
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!job) {

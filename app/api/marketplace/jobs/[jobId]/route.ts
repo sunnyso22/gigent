@@ -54,7 +54,7 @@ export const PATCH = async (req: Request, { params }: RouteParams) => {
                 ? 404
                 : result.error === "Only the client can update this job" ||
                     result.error ===
-                        "Only open jobs can be edited before an on-chain job exists"
+                        "Only open jobs can be edited before a Job ID exists"
                   ? 403
                   : 400
         return jsonError(status, result.error)

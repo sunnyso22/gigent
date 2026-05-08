@@ -6,6 +6,7 @@ import { isJobStatusEligibleForDeliveryContent } from "@/lib/agent-jobs/delivery
 
 type JobDetail = {
     id: string
+    acpJobId?: string | null
     title: string
     description: string
     budgetAmount: string
@@ -56,7 +57,7 @@ export const MarketplaceJobActions = ({
             {!sessionUserId ? (
                 <p className="text-xs text-muted-foreground">
                     <Link
-                        href={`/login?callbackUrl=/marketplace/${job.id}`}
+                        href={`/login?callbackUrl=/marketplace/${job.acpJobId ?? job.id}`}
                         className="text-foreground underline"
                     >
                         Sign in

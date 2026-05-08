@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import MarketplaceJobListingFields, {
     MarketplaceJobStatusBadge,
 } from "@/components/marketplace/marketplace-job-listing-fields"
+import MarketplaceJobTitle from "@/components/marketplace/marketplace-job-title"
 import { MarketplaceJobActions } from "@/components/marketplace/marketplace-job-actions"
 import { getSession } from "@/lib/auth/session"
 import { signDeliveryPayloadUrlsForViewer } from "@/lib/agent-jobs/delivery/sign-viewer-urls"
@@ -50,7 +51,10 @@ const Page = async ({ params }: JobPageProps) => {
             <header className="flex flex-col gap-4">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     <h1 className="min-w-0 flex-1 font-heading text-2xl leading-tight tracking-tight text-foreground sm:text-3xl">
-                        {job.title}
+                        <MarketplaceJobTitle
+                            title={job.title}
+                            jobId={job.acpJobId}
+                        />
                     </h1>
                     <MarketplaceJobStatusBadge status={job.status} />
                 </div>
@@ -101,6 +105,7 @@ const Page = async ({ params }: JobPageProps) => {
             <MarketplaceJobActions
                 job={{
                     id: job.id,
+                    acpJobId: job.acpJobId,
                     title: job.title,
                     description: job.description,
                     budgetAmount: job.budgetAmount,

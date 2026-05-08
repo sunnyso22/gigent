@@ -45,10 +45,10 @@ const JOB_CREATE_CARET_INDEX =
     JOB_CREATE_TEMPLATE.indexOf("- Job description: ") + "- Job description: ".length
 
 const PLACE_BID_TEMPLATE =
-    "Place a bid on below job:\n- Job name: \n- Client: \n- Amount: "
+    "Place a bid on below job:\n- Job ID: \n- Amount: "
 
 const PLACE_BID_CARET_INDEX =
-    PLACE_BID_TEMPLATE.indexOf("- Job name: ") + "- Job name: ".length
+    PLACE_BID_TEMPLATE.indexOf("- Job ID: ") + "- Job ID: ".length
 
 const ACCEPT_BID_TEMPLATE =
     "Accept the bid from:\n- Provider: \n- Amount: "

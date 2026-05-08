@@ -33,7 +33,7 @@ export const job = pgTable(
         > | null>(),
         submittedAt: timestamp("submitted_at", { withTimezone: true }),
         completedAt: timestamp("completed_at", { withTimezone: true }),
-        /** On-chain job id (uint256 as string); null until `createJob` is confirmed. */
+        /** Job ID on Kite (uint256 as string); null until `createJob` is confirmed. */
         acpJobId: text("acp_job_id"),
         acpChainId: text("acp_chain_id").notNull().default("2368"),
         acpContractAddress: text("acp_contract_address"),

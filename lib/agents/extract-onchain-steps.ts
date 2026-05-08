@@ -13,7 +13,10 @@ type StepToolName = (typeof STEP_TOOLS)[number]
 
 type StepToolOutput = {
     success?: boolean
-    jobId?: string
+    /** Published Job ID (decimal) when set—pass-through for wallet preflight. */
+    jobId?: string | null
+    /** Unpublished listing row id (UUID)—legacy / edge; wallet preflight accepts either. */
+    listingId?: string
     onChain?: OnChainStepsBundle | { error?: string }
 }
 
@@ -63,7 +66,11 @@ export const extractLatestOnChainStepsFromMessages = (
                 continue
             }
             const out = p.output as StepToolOutput | null
-            if (!out?.jobId || !isStepsBundle(out.onChain)) {
+            if (!out) {
+                continue
+            }
+            const ref = out.jobId ?? out.listingId
+            if (!ref || !isStepsBundle(out.onChain)) {
                 continue
             }
             if (name === "bid_accept" || name === "job_submit") {
@@ -72,7 +79,7 @@ export const extractLatestOnChainStepsFromMessages = (
                 }
             }
             return {
-                jobId: String(out.jobId),
+                jobId: String(ref),
                 bundle: out.onChain,
                 toolName: name as StepToolName,
             }

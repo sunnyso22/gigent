@@ -112,7 +112,7 @@ const useAgentChatOnchainEffects = (
                     counter > zero ? [counter, counter - BigInt(1)] : [counter]
 
                 let resolved: bigint | null = null
-                let lastErr = "Could not link on-chain job id"
+                let lastErr = "Could not link Job ID"
                 for (const candidate of candidates) {
                     if (!address) {
                         break

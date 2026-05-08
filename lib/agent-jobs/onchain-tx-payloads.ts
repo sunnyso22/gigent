@@ -51,7 +51,7 @@ export const getAcceptBidOnChainBundle = async (input: {
         return {
             ok: false,
             error:
-                "Job has no on-chain id yet. Publish the listing on Kite (after job_create) before accepting a bid.",
+                "No Job ID yet. Publish the listing on Kite (after job_create) before accepting a bid.",
         }
     }
     if (job.status !== "funded") {
@@ -125,7 +125,7 @@ export const getSubmitDeliveryOnChainBundle = async (input: {
         }
     }
     if (!job.acpJobId) {
-        return { ok: false, error: "Job has no on-chain id" }
+        return { ok: false, error: "Job has no Job ID" }
     }
     const raw = job.deliverableCommitment?.trim()
     if (!raw?.startsWith("0x") || raw.length !== 66) {
@@ -168,7 +168,7 @@ export const getCompleteJobOnChainBundle = async (input: {
         return { ok: false, error: "Only the client can complete on-chain" }
     }
     if (!job.acpJobId) {
-        return { ok: false, error: "Job has no on-chain id" }
+        return { ok: false, error: "Job has no Job ID" }
     }
     const commerce = commerceAddr()
     const steps: OnChainStep[] = [
@@ -203,7 +203,7 @@ export const getRejectJobOnChainBundle = async (input: {
     if (!job.acpJobId) {
         return {
             ok: false,
-            error: "No on-chain job to reject (use DB-only reject when open)",
+            error: "No Job ID to reject (use DB-only reject when the listing is still open)",
         }
     }
     const commerce = commerceAddr()

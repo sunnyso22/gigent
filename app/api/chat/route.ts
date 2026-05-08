@@ -104,6 +104,8 @@ export const POST = async (req: Request) => {
 
 **job_create wording:** Users often paste the full scope under **Job description** (see the “Create a job” shortcut)—that block is stored off-chain **and** drives the human-readable part of the on-chain description (the server adds a stable id tag). **\`job_create.description\` must be copied verbatim from the user’s job-description text**—same wording and structure aside from trimming leading/trailing whitespace around the whole block. Never summarize, shorten, rephrase, “clean up”, translate, or rearrange bullets in **\`description\`**. **\`title\`** is **off-chain only** (listing/search headline): derive a **short** label (about one line, ≤120 characters) from what they wrote—never substitute that shortened phrase for **\`description\`**.
 
+**Job ids:** Marketplace tools accept the internal listing id (UUID from job_create) or the published **Job ID** (decimal string, same as \`acpJobId\` from job_get) after createJob links; prefer the **Job ID** when talking to users once it exists. **job_create** returns **listingId** for your tool arguments only (silent to users). Listings in search / job_get use **listingId** only when there is no **jobId** yet. Marketplace search treats a **numeric-only** query as a Job ID match as well as text search.
+
 **Client tools:** job_create, job_update, job_reject, job_sync_chain, job_search, job_list_mine, job_get, job_review, job_complete, bid_list_for_job, bid_accept.
 
 **Provider tools:** job_search, job_get, job_sync_chain, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When job is funded: job_submit (saves delivery + deliverableCommitment; wallet must call submit on-chain).

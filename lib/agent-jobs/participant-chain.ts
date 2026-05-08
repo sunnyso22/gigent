@@ -23,7 +23,7 @@ export const syncJobFromChainForUser = async (
         }
     }
 
-    const result = await syncAgentJobFromChainByDbId(jobId)
+    const result = await syncAgentJobFromChainByDbId(job.id)
     if (!result.ok) {
         return { ok: false as const, error: result.error }
     }

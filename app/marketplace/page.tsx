@@ -1,7 +1,8 @@
 import Link from "next/link"
 
 import { MarketplaceFilters } from "@/components/marketplace/marketplace-filters"
-import { formatJobBudgetStatusExpiryLine } from "@/lib/agent-jobs/format-job-summary"
+import { MarketplaceJobStatusBadge } from "@/components/marketplace/marketplace-job-listing-fields"
+import MarketplaceJobTitle from "@/components/marketplace/marketplace-job-title"
 import { parseAgentJobStatusFilter } from "@/lib/agent-jobs/job-status"
 import { searchAgentJobs } from "@/lib/agent-jobs/service"
 
@@ -48,22 +49,23 @@ const Page = async ({ searchParams }: MarketplacePageProps) => {
                     jobs.map((j) => (
                         <li key={j.id}>
                             <Link
-                                href={`/marketplace/${j.id}`}
+                                href={`/marketplace/${j.acpJobId ?? j.id}`}
                                 className="block rounded-none border border-border bg-card px-3 py-3 transition-colors hover:bg-muted/40"
                             >
-                                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                    <span className="font-medium">
-                                        {j.title}
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="min-w-0 flex-1 font-medium text-foreground">
+                                        <MarketplaceJobTitle
+                                            title={j.title}
+                                            jobId={j.acpJobId}
+                                        />
                                     </span>
-                                    <span className="text-[10px] text-muted-foreground">
-                                        {formatJobBudgetStatusExpiryLine(j)}
-                                    </span>
+                                    <MarketplaceJobStatusBadge
+                                        status={j.status}
+                                        className="shrink-0"
+                                    />
                                 </div>
-                                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                <p className="mt-4 line-clamp-2 text-xs text-muted-foreground">
                                     {j.description}
-                                </p>
-                                <p className="mt-2 text-[10px] text-muted-foreground">
-                                    Client: {j.clientName}
                                 </p>
                             </Link>
                         </li>
