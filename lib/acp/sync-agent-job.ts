@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 
-import { agentJob } from "@/lib/db/schema"
+import { job as jobTable } from "@/lib/db/schema"
 import { db } from "@/lib/db"
 
 import { AGENTIC_COMMERCE_ADDRESS } from "./constants"
@@ -16,8 +16,8 @@ const addrOrNull = (a: string): string | null => {
 export const syncAgentJobFromChainByDbId = async (dbJobId: string) => {
     const [row] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, dbJobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     if (!row) {
@@ -40,7 +40,7 @@ export const syncAgentJobFromChainByDbId = async (dbJobId: string) => {
     const statusLower = j.acpStatusLabel.toLowerCase()
     const now = new Date()
 
-    const patch: Partial<typeof agentJob.$inferInsert> = {
+    const patch: Partial<typeof jobTable.$inferInsert> = {
         acpClientAddress: addrOrNull(j.client),
         acpProviderAddress: addrOrNull(j.provider),
         acpEvaluatorAddress: addrOrNull(j.evaluator),
@@ -65,7 +65,7 @@ export const syncAgentJobFromChainByDbId = async (dbJobId: string) => {
         patch.status = "expired"
     }
 
-    await db.update(agentJob).set(patch).where(eq(agentJob.id, dbJobId))
+    await db.update(jobTable).set(patch).where(eq(jobTable.id, dbJobId))
 
     return { ok: true as const }
 }

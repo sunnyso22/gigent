@@ -1,4 +1,4 @@
-/** Drizzle schema for `agent_job` / `agent_job_bid` — ERC-8183 + app fields. */
+/** Drizzle schema for `job` / `bid` — ERC-8183 + app fields. */
 import { relations } from "drizzle-orm"
 import {
     index,
@@ -11,8 +11,8 @@ import {
 
 import { user } from "./auth-schema"
 
-export const agentJob = pgTable(
-    "agent_job",
+export const job = pgTable(
+    "job",
     {
         id: text("id").primaryKey(),
         title: text("title").notNull(),
@@ -33,7 +33,6 @@ export const agentJob = pgTable(
         > | null>(),
         submittedAt: timestamp("submitted_at", { withTimezone: true }),
         completedAt: timestamp("completed_at", { withTimezone: true }),
-        providerPayoutAddress: text("provider_payout_address"),
         /** On-chain job id (uint256 as string); null until `createJob` is confirmed. */
         acpJobId: text("acp_job_id"),
         acpChainId: text("acp_chain_id").notNull().default("2368"),
@@ -60,19 +59,19 @@ export const agentJob = pgTable(
             .notNull(),
     },
     (table) => [
-        index("agent_job_client_idx").on(table.clientUserId),
-        index("agent_job_status_idx").on(table.status),
-        index("agent_job_acp_job_idx").on(table.acpJobId),
+        index("job_client_idx").on(table.clientUserId),
+        index("job_status_idx").on(table.status),
+        index("job_acp_job_idx").on(table.acpJobId),
     ]
 )
 
-export const agentJobBid = pgTable(
-    "agent_job_bid",
+export const bid = pgTable(
+    "bid",
     {
         id: text("id").primaryKey(),
         jobId: text("job_id")
             .notNull()
-            .references(() => agentJob.id, { onDelete: "cascade" }),
+            .references(() => job.id, { onDelete: "cascade" }),
         providerUserId: text("provider_user_id")
             .notNull()
             .references(() => user.id, { onDelete: "cascade" }),
@@ -85,34 +84,31 @@ export const agentJobBid = pgTable(
             .notNull(),
     },
     (table) => [
-        index("agent_job_bid_job_idx").on(table.jobId),
-        index("agent_job_bid_provider_idx").on(table.providerUserId),
-        uniqueIndex("agent_job_bid_job_provider_unique").on(
-            table.jobId,
-            table.providerUserId
-        ),
+        index("bid_job_idx").on(table.jobId),
+        index("bid_provider_idx").on(table.providerUserId),
+        uniqueIndex("bid_job_provider_unique").on(table.jobId, table.providerUserId),
     ]
 )
 
-export const agentJobRelations = relations(agentJob, ({ one, many }) => ({
+export const jobRelations = relations(job, ({ one, many }) => ({
     client: one(user, {
-        fields: [agentJob.clientUserId],
+        fields: [job.clientUserId],
         references: [user.id],
     }),
     provider: one(user, {
-        fields: [agentJob.providerUserId],
+        fields: [job.providerUserId],
         references: [user.id],
     }),
-    bids: many(agentJobBid),
+    bids: many(bid),
 }))
 
-export const agentJobBidRelations = relations(agentJobBid, ({ one }) => ({
-    job: one(agentJob, {
-        fields: [agentJobBid.jobId],
-        references: [agentJob.id],
+export const bidRelations = relations(bid, ({ one }) => ({
+    job: one(job, {
+        fields: [bid.jobId],
+        references: [job.id],
     }),
     provider: one(user, {
-        fields: [agentJobBid.providerUserId],
+        fields: [bid.providerUserId],
         references: [user.id],
     }),
 }))

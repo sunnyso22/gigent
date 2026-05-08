@@ -3,7 +3,7 @@ import type { UIMessage } from "ai"
 
 import { hasUserAiGatewayApiKey } from "@/lib/ai-gateway"
 import { db } from "@/lib/db"
-import { agentMessage, userAgent } from "@/lib/db/schema"
+import { agentMessage, agent } from "@/lib/db/schema"
 
 const normalizeMessageForCompare = (m: UIMessage) => ({
     id: m.id,
@@ -41,14 +41,14 @@ export const listUserAgents = async (
 ): Promise<UserAgentSummary[]> => {
     return db
         .select({
-            id: userAgent.id,
-            title: userAgent.title,
-            modelId: userAgent.modelId,
-            updatedAt: userAgent.updatedAt,
+            id: agent.id,
+            title: agent.title,
+            modelId: agent.modelId,
+            updatedAt: agent.updatedAt,
         })
-        .from(userAgent)
-        .where(eq(userAgent.userId, userId))
-        .orderBy(desc(userAgent.updatedAt), desc(userAgent.createdAt))
+        .from(agent)
+        .where(eq(agent.userId, userId))
+        .orderBy(desc(agent.updatedAt), desc(agent.createdAt))
 }
 
 export const getAgentForUser = async (
@@ -57,14 +57,14 @@ export const getAgentForUser = async (
 ): Promise<UserAgentSummary | null> => {
     const rows = await db
         .select({
-            id: userAgent.id,
-            title: userAgent.title,
-            modelId: userAgent.modelId,
-            updatedAt: userAgent.updatedAt,
+            id: agent.id,
+            title: agent.title,
+            modelId: agent.modelId,
+            updatedAt: agent.updatedAt,
         })
-        .from(userAgent)
+        .from(agent)
         .where(
-            and(eq(userAgent.id, agentId), eq(userAgent.userId, userId))
+            and(eq(agent.id, agentId), eq(agent.userId, userId))
         )
         .limit(1)
     return rows[0] ?? null
@@ -99,8 +99,8 @@ export const getAgentMessages = async (
     userId: string,
     agentId: string
 ): Promise<UIMessage[] | null> => {
-    const agent = await getAgentForUser(userId, agentId)
-    if (!agent) {
+    const agentSummary = await getAgentForUser(userId, agentId)
+    if (!agentSummary) {
         return null
     }
     return listAgentMessagesForAgentId(agentId)
@@ -131,12 +131,12 @@ export const upsertAgentWithMessages = async (input: {
 
     const existingRows = await db
         .select({
-            userId: userAgent.userId,
-            title: userAgent.title,
-            modelId: userAgent.modelId,
+            userId: agent.userId,
+            title: agent.title,
+            modelId: agent.modelId,
         })
-        .from(userAgent)
-        .where(eq(userAgent.id, input.agentId))
+        .from(agent)
+        .where(eq(agent.id, input.agentId))
         .limit(1)
 
     const existing = existingRows[0]
@@ -160,12 +160,12 @@ export const upsertAgentWithMessages = async (input: {
 
         if (sameMessages && !sameMeta) {
             await db
-                .update(userAgent)
+                .update(agent)
                 .set({
                     title: input.title,
                     modelId: input.modelId,
                 })
-                .where(eq(userAgent.id, input.agentId))
+                .where(eq(agent.id, input.agentId))
             return { ok: true }
         }
     }
@@ -173,15 +173,15 @@ export const upsertAgentWithMessages = async (input: {
     await db.transaction(async (tx) => {
         if (existing) {
             await tx
-                .update(userAgent)
+                .update(agent)
                 .set({
                     title: input.title,
                     modelId: input.modelId,
                     updatedAt: new Date(),
                 })
-                .where(eq(userAgent.id, input.agentId))
+                .where(eq(agent.id, input.agentId))
         } else {
-            await tx.insert(userAgent).values({
+            await tx.insert(agent).values({
                 id: input.agentId,
                 userId: input.userId,
                 title: input.title,

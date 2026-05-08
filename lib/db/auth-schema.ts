@@ -74,7 +74,7 @@ export const verification = pgTable(
 )
 
 /** Encrypted Vercel AI Gateway API key (BYOK); ciphertext is AES-256-GCM payload. */
-export const userAiGatewayKey = pgTable("user_ai_gateway_key", {
+export const aiGatewayKey = pgTable("ai_gateway_key", {
     userId: text("user_id")
         .primaryKey()
         .references(() => user.id, { onDelete: "cascade" }),
@@ -92,9 +92,9 @@ export const userAiGatewayKey = pgTable("user_ai_gateway_key", {
 export const userRelations = relations(user, ({ many, one }) => ({
     sessions: many(session),
     accounts: many(account),
-    aiGatewayKey: one(userAiGatewayKey, {
+    aiGatewayKey: one(aiGatewayKey, {
         fields: [user.id],
-        references: [userAiGatewayKey.userId],
+        references: [aiGatewayKey.userId],
     }),
 }))
 
@@ -112,12 +112,9 @@ export const accountRelations = relations(account, ({ one }) => ({
     }),
 }))
 
-export const userAiGatewayKeyRelations = relations(
-    userAiGatewayKey,
-    ({ one }) => ({
-        user: one(user, {
-            fields: [userAiGatewayKey.userId],
-            references: [user.id],
-        }),
-    })
-)
+export const aiGatewayKeyRelations = relations(aiGatewayKey, ({ one }) => ({
+    user: one(user, {
+        fields: [aiGatewayKey.userId],
+        references: [user.id],
+    }),
+}))

@@ -24,7 +24,7 @@ import {
 import { deliverableCommitmentBytes32 } from "@/lib/acp/deliverable-commitment"
 import { syncAgentJobFromChainByDbId } from "@/lib/acp/sync-agent-job"
 import { formatUsdtWei, usdtDecimalToWei } from "@/lib/acp/usdt-amount"
-import { agentJob, agentJobBid, user } from "@/lib/db/schema"
+import { bid as bidTable, job as jobTable, user } from "@/lib/db/schema"
 import { db } from "@/lib/db"
 import { getAddress, zeroAddress, type Address } from "viem"
 
@@ -156,7 +156,7 @@ export const createAgentJob = async (input: {
         input.description.trim()
     )
 
-    await db.insert(agentJob).values({
+    await db.insert(jobTable).values({
         id,
         title: input.title.trim(),
         description: input.description.trim(),
@@ -192,8 +192,8 @@ export const getCreateJobOnChainPayload = async (input: {
 }): Promise<GetCreateJobOnChainPayloadResult> => {
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -213,9 +213,9 @@ export const getCreateJobOnChainPayload = async (input: {
     if (!acpDesc) {
         acpDesc = buildGigentTaggedJobDescription(job.id, job.description)
         await db
-            .update(agentJob)
+            .update(jobTable)
             .set({ acpDescription: acpDesc })
-            .where(eq(agentJob.id, job.id))
+            .where(eq(jobTable.id, job.id))
     }
 
     if (!job.acpExpiresAt) {
@@ -274,8 +274,8 @@ export const linkDbJobToAcpJobId = async (input: {
 
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -319,9 +319,9 @@ export const linkDbJobToAcpJobId = async (input: {
     }
 
     await db
-        .update(agentJob)
+        .update(jobTable)
         .set({ acpJobId: acpIdRaw })
-        .where(eq(agentJob.id, job.id))
+        .where(eq(jobTable.id, job.id))
 
     await syncAgentJobFromChainByDbId(job.id)
 
@@ -342,8 +342,8 @@ export const updateAgentJobAsClient = async (input: {
 }): Promise<UpdateAgentJobAsClientResult> => {
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -366,7 +366,7 @@ export const updateAgentJobAsClient = async (input: {
         }
     }
 
-    const patch: Partial<typeof agentJob.$inferInsert> = {}
+    const patch: Partial<typeof jobTable.$inferInsert> = {}
 
     if (input.title !== undefined) {
         patch.title = input.title.trim()
@@ -383,7 +383,7 @@ export const updateAgentJobAsClient = async (input: {
         return { ok: false, error: "No fields to update" }
     }
 
-    await db.update(agentJob).set(patch).where(eq(agentJob.id, input.jobId))
+    await db.update(jobTable).set(patch).where(eq(jobTable.id, input.jobId))
 
     return { ok: true, applied: true }
 }
@@ -424,10 +424,10 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
     if (statusIn !== undefined && statusIn !== "all") {
         if (Array.isArray(statusIn)) {
             if (statusIn.length > 0) {
-                conditions.push(inArray(agentJob.status, statusIn))
+                conditions.push(inArray(jobTable.status, statusIn))
             }
         } else {
-            conditions.push(eq(agentJob.status, statusIn))
+            conditions.push(eq(jobTable.status, statusIn))
         }
     }
 
@@ -439,12 +439,12 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
     const maxRaw = trimOptional(input.maxBudgetAmount)
     if (minRaw !== undefined) {
         conditions.push(
-            sql`(${agentJob.acpBudget})::numeric >= ${parseBudgetBound(minRaw)}`
+            sql`(${jobTable.acpBudget})::numeric >= ${parseBudgetBound(minRaw)}`
         )
     }
     if (maxRaw !== undefined) {
         conditions.push(
-            sql`(${agentJob.acpBudget})::numeric <= ${parseBudgetBound(maxRaw)}`
+            sql`(${jobTable.acpBudget})::numeric <= ${parseBudgetBound(maxRaw)}`
         )
     }
 
@@ -454,8 +454,8 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
             const perToken = tokens.map((tok) => {
                 const pattern = `%${escapeIlikePattern(tok)}%`
                 return or(
-                    ilike(agentJob.title, pattern),
-                    ilike(agentJob.description, pattern),
+                    ilike(jobTable.title, pattern),
+                    ilike(jobTable.description, pattern),
                     ilike(user.name, pattern)
                 )
             })
@@ -471,24 +471,24 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
 
     const base = db
         .select({
-            id: agentJob.id,
-            title: agentJob.title,
-            description: agentJob.description,
-            acpBudget: agentJob.acpBudget,
-            acpExpiresAt: agentJob.acpExpiresAt,
-            status: agentJob.status,
-            clientUserId: agentJob.clientUserId,
+            id: jobTable.id,
+            title: jobTable.title,
+            description: jobTable.description,
+            acpBudget: jobTable.acpBudget,
+            acpExpiresAt: jobTable.acpExpiresAt,
+            status: jobTable.status,
+            clientUserId: jobTable.clientUserId,
             clientName: user.name,
-            createdAt: agentJob.createdAt,
+            createdAt: jobTable.createdAt,
         })
-        .from(agentJob)
-        .innerJoin(user, eq(agentJob.clientUserId, user.id))
+        .from(jobTable)
+        .innerJoin(user, eq(jobTable.clientUserId, user.id))
 
     const filtered =
         conditions.length > 0 ? base.where(and(...conditions)!) : base
 
     const rows = await filtered
-        .orderBy(desc(agentJob.createdAt))
+        .orderBy(desc(jobTable.createdAt))
         .limit(limit)
 
     return rows.map((r) => ({
@@ -499,50 +499,68 @@ export const searchAgentJobs = async (input: SearchAgentJobsInput) => {
 }
 
 export const getAgentJobById = async (jobId: string) => {
-    const providerUser = alias(user, "agent_job_provider")
+    const providerUser = alias(user, "job_provider")
+    const acceptedBid = alias(bidTable, "job_accepted_bid")
 
     const [row] = await db
         .select({
-            id: agentJob.id,
-            title: agentJob.title,
-            description: agentJob.description,
-            acpBudget: agentJob.acpBudget,
-            status: agentJob.status,
-            clientUserId: agentJob.clientUserId,
+            id: jobTable.id,
+            title: jobTable.title,
+            description: jobTable.description,
+            acpBudget: jobTable.acpBudget,
+            status: jobTable.status,
+            clientUserId: jobTable.clientUserId,
             clientName: user.name,
-            providerUserId: agentJob.providerUserId,
+            providerUserId: jobTable.providerUserId,
             providerName: providerUser.name,
-            acceptedBidId: agentJob.acceptedBidId,
-            deliveryPayload: agentJob.deliveryPayload,
-            submittedAt: agentJob.submittedAt,
-            completedAt: agentJob.completedAt,
-            providerPayoutAddress: agentJob.providerPayoutAddress,
-            acpJobId: agentJob.acpJobId,
-            acpChainId: agentJob.acpChainId,
-            acpContractAddress: agentJob.acpContractAddress,
-            acpClientAddress: agentJob.acpClientAddress,
-            acpProviderAddress: agentJob.acpProviderAddress,
-            acpEvaluatorAddress: agentJob.acpEvaluatorAddress,
-            acpDescription: agentJob.acpDescription,
-            acpExpiresAt: agentJob.acpExpiresAt,
-            acpStatus: agentJob.acpStatus,
-            acpHookAddress: agentJob.acpHookAddress,
-            deliverableCommitment: agentJob.deliverableCommitment,
-            lastChainSyncAt: agentJob.lastChainSyncAt,
-            createdAt: agentJob.createdAt,
+            acceptedBidId: jobTable.acceptedBidId,
+            acceptedBidProviderWallet: acceptedBid.providerWalletAddress,
+            deliveryPayload: jobTable.deliveryPayload,
+            submittedAt: jobTable.submittedAt,
+            completedAt: jobTable.completedAt,
+            acpJobId: jobTable.acpJobId,
+            acpChainId: jobTable.acpChainId,
+            acpContractAddress: jobTable.acpContractAddress,
+            acpClientAddress: jobTable.acpClientAddress,
+            acpProviderAddress: jobTable.acpProviderAddress,
+            acpEvaluatorAddress: jobTable.acpEvaluatorAddress,
+            acpDescription: jobTable.acpDescription,
+            acpExpiresAt: jobTable.acpExpiresAt,
+            acpStatus: jobTable.acpStatus,
+            acpHookAddress: jobTable.acpHookAddress,
+            deliverableCommitment: jobTable.deliverableCommitment,
+            lastChainSyncAt: jobTable.lastChainSyncAt,
+            createdAt: jobTable.createdAt,
         })
-        .from(agentJob)
-        .innerJoin(user, eq(agentJob.clientUserId, user.id))
-        .leftJoin(providerUser, eq(agentJob.providerUserId, providerUser.id))
-        .where(eq(agentJob.id, jobId))
+        .from(jobTable)
+        .innerJoin(user, eq(jobTable.clientUserId, user.id))
+        .leftJoin(providerUser, eq(jobTable.providerUserId, providerUser.id))
+        .leftJoin(
+            acceptedBid,
+            eq(jobTable.acceptedBidId, acceptedBid.id)
+        )
+        .where(eq(jobTable.id, jobId))
         .limit(1)
 
     if (!row) {
         return null
     }
 
+    const { acceptedBidProviderWallet, ...jobFields } = row
+
+    let providerPayoutAddress: string | null = null
+    const walletRaw = acceptedBidProviderWallet?.trim()
+    if (walletRaw) {
+        try {
+            providerPayoutAddress = getAddress(walletRaw as Address)
+        } catch {
+            providerPayoutAddress = null
+        }
+    }
+
     return {
-        ...row,
+        ...jobFields,
+        providerPayoutAddress,
         budgetAmount: formatUsdtWei(row.acpBudget ?? "0"),
         budgetCurrency: "USDT" as const,
         deliveryPayload: parseJobDeliveryPayloadFromDb(row.deliveryPayload),
@@ -552,19 +570,19 @@ export const getAgentJobById = async (jobId: string) => {
 export const listBidsForJob = async (jobId: string) => {
     return db
         .select({
-            id: agentJobBid.id,
-            jobId: agentJobBid.jobId,
-            providerUserId: agentJobBid.providerUserId,
+            id: bidTable.id,
+            jobId: bidTable.jobId,
+            providerUserId: bidTable.providerUserId,
             providerName: user.name,
-            amount: agentJobBid.amount,
-            currency: agentJobBid.currency,
-            status: agentJobBid.status,
-            createdAt: agentJobBid.createdAt,
+            amount: bidTable.amount,
+            currency: bidTable.currency,
+            status: bidTable.status,
+            createdAt: bidTable.createdAt,
         })
-        .from(agentJobBid)
-        .innerJoin(user, eq(agentJobBid.providerUserId, user.id))
-        .where(eq(agentJobBid.jobId, jobId))
-        .orderBy(desc(agentJobBid.createdAt))
+        .from(bidTable)
+        .innerJoin(user, eq(bidTable.providerUserId, user.id))
+        .where(eq(bidTable.jobId, jobId))
+        .orderBy(desc(bidTable.createdAt))
 }
 
 export const placeBid = async (input: {
@@ -576,8 +594,8 @@ export const placeBid = async (input: {
 }) => {
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -591,12 +609,12 @@ export const placeBid = async (input: {
     }
 
     const [existingBid] = await db
-        .select({ id: agentJobBid.id })
-        .from(agentJobBid)
+        .select({ id: bidTable.id })
+        .from(bidTable)
         .where(
             and(
-                eq(agentJobBid.jobId, input.jobId),
-                eq(agentJobBid.providerUserId, input.userId)
+                eq(bidTable.jobId, input.jobId),
+                eq(bidTable.providerUserId, input.userId)
             )
         )
         .limit(1)
@@ -622,7 +640,7 @@ export const placeBid = async (input: {
 
     const id = crypto.randomUUID()
     try {
-        await db.insert(agentJobBid).values({
+        await db.insert(bidTable).values({
             id,
             jobId: input.jobId,
             providerUserId: input.userId,
@@ -656,11 +674,11 @@ export const withdrawBid = async (input: {
 }) => {
     const [bid] = await db
         .select()
-        .from(agentJobBid)
+        .from(bidTable)
         .where(
             and(
-                eq(agentJobBid.id, input.bidId),
-                eq(agentJobBid.jobId, input.jobId)
+                eq(bidTable.id, input.bidId),
+                eq(bidTable.jobId, input.jobId)
             )
         )
         .limit(1)
@@ -682,9 +700,9 @@ export const withdrawBid = async (input: {
     }
 
     const [job] = await db
-        .select({ status: agentJob.status })
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .select({ status: jobTable.status })
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -697,7 +715,7 @@ export const withdrawBid = async (input: {
         }
     }
 
-    await db.delete(agentJobBid).where(eq(agentJobBid.id, input.bidId))
+    await db.delete(bidTable).where(eq(bidTable.id, input.bidId))
 
     return { ok: true as const }
 }
@@ -710,8 +728,8 @@ export const acceptBid = async (input: {
     return db.transaction(async (tx) => {
         const [job] = await tx
             .select()
-            .from(agentJob)
-            .where(eq(agentJob.id, input.jobId))
+            .from(jobTable)
+            .where(eq(jobTable.id, input.jobId))
             .limit(1)
 
         if (!job) {
@@ -739,11 +757,11 @@ export const acceptBid = async (input: {
 
         const [bid] = await tx
             .select()
-            .from(agentJobBid)
+            .from(bidTable)
             .where(
                 and(
-                    eq(agentJobBid.id, input.bidId),
-                    eq(agentJobBid.jobId, input.jobId)
+                    eq(bidTable.id, input.bidId),
+                    eq(bidTable.jobId, input.jobId)
                 )
             )
             .limit(1)
@@ -775,31 +793,33 @@ export const acceptBid = async (input: {
         }
 
         await tx
-            .update(agentJobBid)
-            .set({ status: "accepted" })
-            .where(eq(agentJobBid.id, input.bidId))
+            .update(bidTable)
+            .set({
+                status: "accepted",
+                providerWalletAddress: payoutNormalized,
+            })
+            .where(eq(bidTable.id, input.bidId))
 
         await tx
-            .update(agentJobBid)
+            .update(bidTable)
             .set({ status: "rejected" })
             .where(
                 and(
-                    eq(agentJobBid.jobId, input.jobId),
-                    ne(agentJobBid.id, input.bidId),
-                    eq(agentJobBid.status, "pending")
+                    eq(bidTable.jobId, input.jobId),
+                    ne(bidTable.id, input.bidId),
+                    eq(bidTable.status, "pending")
                 )
             )
 
         await tx
-            .update(agentJob)
+            .update(jobTable)
             .set({
                 status: "funded",
                 providerUserId: bid.providerUserId,
                 acceptedBidId: input.bidId,
-                providerPayoutAddress: payoutNormalized,
                 acpBudget: usdtDecimalToWei(bid.amount.trim()),
             })
-            .where(eq(agentJob.id, input.jobId))
+            .where(eq(jobTable.id, input.jobId))
 
         return { ok: true as const }
     })
@@ -819,8 +839,8 @@ export const submitJobDelivery = async (input: {
 
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -840,14 +860,14 @@ export const submitJobDelivery = async (input: {
     }
 
     await db
-        .update(agentJob)
+        .update(jobTable)
         .set({
             status: "submitted",
             deliveryPayload: parsed.data as Record<string, unknown>,
             deliverableCommitment: commitment,
             submittedAt: new Date(),
         })
-        .where(eq(agentJob.id, input.jobId))
+        .where(eq(jobTable.id, input.jobId))
 
     return {
         ok: true as const,
@@ -861,12 +881,12 @@ export const assertJobDeliveryUploadAllowed = async (input: {
 }) => {
     const [job] = await db
         .select({
-            id: agentJob.id,
-            status: agentJob.status,
-            providerUserId: agentJob.providerUserId,
+            id: jobTable.id,
+            status: jobTable.status,
+            providerUserId: jobTable.providerUserId,
         })
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -895,8 +915,8 @@ export const confirmJobCompletion = async (input: {
 
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -924,12 +944,12 @@ export const confirmJobCompletion = async (input: {
 
     if (job.status !== "completed") {
         await db
-            .update(agentJob)
+            .update(jobTable)
             .set({
                 status: "completed",
                 completedAt: job.completedAt ?? new Date(),
             })
-            .where(eq(agentJob.id, input.jobId))
+            .where(eq(jobTable.id, input.jobId))
     }
 
     return { ok: true as const }
@@ -941,8 +961,8 @@ export const rejectAgentJobAsClient = async (input: {
 }) => {
     const [job] = await db
         .select()
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -960,28 +980,28 @@ export const rejectAgentJobAsClient = async (input: {
             }
         }
         await db
-            .update(agentJob)
+            .update(jobTable)
             .set({ status: "rejected" })
-            .where(eq(agentJob.id, input.jobId))
+            .where(eq(jobTable.id, input.jobId))
         return { ok: true as const }
     }
 
     await syncAgentJobFromChainByDbId(input.jobId)
 
     const [again] = await db
-        .select({ acpStatus: agentJob.acpStatus })
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .select({ acpStatus: jobTable.acpStatus })
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     const st = again?.acpStatus?.toLowerCase() ?? ""
     if (st === "rejected" || st === "expired") {
         await db
-            .update(agentJob)
+            .update(jobTable)
             .set({
                 status: st === "expired" ? "expired" : "rejected",
             })
-            .where(eq(agentJob.id, input.jobId))
+            .where(eq(jobTable.id, input.jobId))
         return { ok: true as const }
     }
 
@@ -1027,15 +1047,15 @@ export const getJobForViewer = async (input: {
 export const listMyPostedJobs = async (userId: string, limit = 30) => {
     const rows = await db
         .select({
-            id: agentJob.id,
-            title: agentJob.title,
-            status: agentJob.status,
-            acpBudget: agentJob.acpBudget,
-            createdAt: agentJob.createdAt,
+            id: jobTable.id,
+            title: jobTable.title,
+            status: jobTable.status,
+            acpBudget: jobTable.acpBudget,
+            createdAt: jobTable.createdAt,
         })
-        .from(agentJob)
-        .where(eq(agentJob.clientUserId, userId))
-        .orderBy(desc(agentJob.createdAt))
+        .from(jobTable)
+        .where(eq(jobTable.clientUserId, userId))
+        .orderBy(desc(jobTable.createdAt))
         .limit(limit)
 
     return rows.map((r) => ({
@@ -1048,19 +1068,19 @@ export const listMyPostedJobs = async (userId: string, limit = 30) => {
 export const listMyBids = async (userId: string, limit = 30) => {
     return db
         .select({
-            bidId: agentJobBid.id,
-            jobId: agentJobBid.jobId,
-            amount: agentJobBid.amount,
-            currency: agentJobBid.currency,
-            bidStatus: agentJobBid.status,
-            jobTitle: agentJob.title,
-            jobStatus: agentJob.status,
-            createdAt: agentJobBid.createdAt,
+            bidId: bidTable.id,
+            jobId: bidTable.jobId,
+            amount: bidTable.amount,
+            currency: bidTable.currency,
+            bidStatus: bidTable.status,
+            jobTitle: jobTable.title,
+            jobStatus: jobTable.status,
+            createdAt: bidTable.createdAt,
         })
-        .from(agentJobBid)
-        .innerJoin(agentJob, eq(agentJobBid.jobId, agentJob.id))
-        .where(eq(agentJobBid.providerUserId, userId))
-        .orderBy(desc(agentJobBid.createdAt))
+        .from(bidTable)
+        .innerJoin(jobTable, eq(bidTable.jobId, jobTable.id))
+        .where(eq(bidTable.providerUserId, userId))
+        .orderBy(desc(bidTable.createdAt))
         .limit(limit)
 }
 
@@ -1071,19 +1091,19 @@ export const getBidStatusForUser = async (input: {
     if (input.jobId) {
         const bids = await db
             .select({
-                bidId: agentJobBid.id,
-                jobId: agentJobBid.jobId,
-                amount: agentJobBid.amount,
-                bidStatus: agentJobBid.status,
-                jobTitle: agentJob.title,
-                jobStatus: agentJob.status,
+                bidId: bidTable.id,
+                jobId: bidTable.jobId,
+                amount: bidTable.amount,
+                bidStatus: bidTable.status,
+                jobTitle: jobTable.title,
+                jobStatus: jobTable.status,
             })
-            .from(agentJobBid)
-            .innerJoin(agentJob, eq(agentJobBid.jobId, agentJob.id))
+            .from(bidTable)
+            .innerJoin(jobTable, eq(bidTable.jobId, jobTable.id))
             .where(
                 and(
-                    eq(agentJobBid.providerUserId, input.userId),
-                    eq(agentJobBid.jobId, input.jobId)
+                    eq(bidTable.providerUserId, input.userId),
+                    eq(bidTable.jobId, input.jobId)
                 )
             )
         return bids
@@ -1103,11 +1123,11 @@ export const updateBidAmount = async (input: {
 }) => {
     const [bid] = await db
         .select()
-        .from(agentJobBid)
+        .from(bidTable)
         .where(
             and(
-                eq(agentJobBid.id, input.bidId),
-                eq(agentJobBid.jobId, input.jobId)
+                eq(bidTable.id, input.bidId),
+                eq(bidTable.jobId, input.jobId)
             )
         )
         .limit(1)
@@ -1129,9 +1149,9 @@ export const updateBidAmount = async (input: {
     }
 
     const [job] = await db
-        .select({ status: agentJob.status })
-        .from(agentJob)
-        .where(eq(agentJob.id, input.jobId))
+        .select({ status: jobTable.status })
+        .from(jobTable)
+        .where(eq(jobTable.id, input.jobId))
         .limit(1)
 
     if (!job) {
@@ -1158,7 +1178,7 @@ export const updateBidAmount = async (input: {
         }
     }
 
-    await db.update(agentJobBid).set(patch).where(eq(agentJobBid.id, input.bidId))
+    await db.update(bidTable).set(patch).where(eq(bidTable.id, input.bidId))
 
     return { ok: true as const }
 }

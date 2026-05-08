@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 
-import { userAiGatewayKey } from "@/lib/db/auth-schema"
+import { aiGatewayKey } from "@/lib/db/auth-schema"
 import { db } from "@/lib/db"
 import { decryptAiGatewayApiKey, encryptAiGatewayApiKey } from "@/lib/ai-gateway/crypto"
 
@@ -15,9 +15,9 @@ export const getMaskedUserAiGatewayKey = async (
     userId: string
 ): Promise<{ keyLast4: string } | null> => {
     const rows = await db
-        .select({ keyLast4: userAiGatewayKey.keyLast4 })
-        .from(userAiGatewayKey)
-        .where(eq(userAiGatewayKey.userId, userId))
+        .select({ keyLast4: aiGatewayKey.keyLast4 })
+        .from(aiGatewayKey)
+        .where(eq(aiGatewayKey.userId, userId))
         .limit(1)
     return rows[0] ?? null
 }
@@ -26,9 +26,9 @@ export const getDecryptedUserAiGatewayApiKey = async (
     userId: string
 ): Promise<string | null> => {
     const rows = await db
-        .select({ ciphertext: userAiGatewayKey.ciphertext })
-        .from(userAiGatewayKey)
-        .where(eq(userAiGatewayKey.userId, userId))
+        .select({ ciphertext: aiGatewayKey.ciphertext })
+        .from(aiGatewayKey)
+        .where(eq(aiGatewayKey.userId, userId))
         .limit(1)
     const row = rows[0]
     if (!row) {
@@ -49,14 +49,14 @@ export const upsertUserAiGatewayApiKey = async ({
         trimmed.length <= 4 ? trimmed : trimmed.slice(-4)
     const ciphertext = encryptAiGatewayApiKey(trimmed)
     await db
-        .insert(userAiGatewayKey)
+        .insert(aiGatewayKey)
         .values({
             userId,
             ciphertext,
             keyLast4,
         })
         .onConflictDoUpdate({
-            target: userAiGatewayKey.userId,
+            target: aiGatewayKey.userId,
             set: {
                 ciphertext,
                 keyLast4,
@@ -67,6 +67,6 @@ export const upsertUserAiGatewayApiKey = async ({
 
 export const deleteUserAiGatewayApiKey = async (userId: string) => {
     await db
-        .delete(userAiGatewayKey)
-        .where(eq(userAiGatewayKey.userId, userId))
+        .delete(aiGatewayKey)
+        .where(eq(aiGatewayKey.userId, userId))
 }
