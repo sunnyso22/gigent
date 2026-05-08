@@ -88,11 +88,9 @@ Exact OAuth env names match [`lib/auth.ts`](lib/auth.ts).
 Schema lives under [`lib/db/`](lib/db/). After `DATABASE_URL` is set:
 
 ```bash
-bunx drizzle-kit migrate
-# or: npx drizzle-kit migrate
+bunx drizzle-kit push
+# or: npx drizzle-kit push
 ```
-
-Apply migrations in [`lib/db/migrations/`](lib/db/migrations/) to match your database.
 
 ### Run locally
 
