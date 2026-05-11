@@ -7,6 +7,7 @@ const STEP_TOOLS = [
     "job_submit",
     "job_complete",
     "job_reject",
+    "job_claim_refund",
 ] as const
 
 type StepToolName = (typeof STEP_TOOLS)[number]

@@ -5,6 +5,7 @@ import {
 } from "@/lib/acp/constants"
 import { encodeErc20Approve } from "@/lib/acp/erc20-encode"
 import {
+    encodeAcpClaimRefund,
     encodeAcpComplete,
     encodeAcpFund,
     encodeAcpReject,
@@ -212,6 +213,85 @@ export const getRejectJobOnChainBundle = async (input: {
             label: "reject",
             to: commerce,
             data: encodeAcpReject({ jobId: BigInt(job.acpJobId) }),
+        },
+    ]
+    return {
+        ok: true,
+        bundle: {
+            chainId: KITE_TESTNET_CHAIN_ID,
+            commerceAddress: commerce,
+            steps,
+        },
+    }
+}
+
+/**
+ * Client calls claimRefund() after listing expiry (EIP-8183) to recover escrow and
+ * transition the on-chain job to Expired.
+ */
+export const getClaimRefundOnChainBundle = async (input: {
+    userId: string
+    jobId: string
+}): Promise<PrepOk | PrepErr> => {
+    const job = await getAgentJobById(input.jobId)
+    if (!job) {
+        return { ok: false, error: "Job not found" }
+    }
+    if (job.clientUserId !== input.userId) {
+        return {
+            ok: false,
+            error: "Only the client can claim a refund for this job",
+        }
+    }
+    if (!job.acpJobId?.trim()) {
+        return {
+            ok: false,
+            error:
+                "No Job ID yet—publish the listing on Kite before claimRefund applies",
+        }
+    }
+
+    const st = job.acpStatus?.toLowerCase() ?? ""
+    if (st === "expired") {
+        return {
+            ok: false,
+            error:
+                "Job is already expired on-chain. Run job_sync_chain if the app still looks stale.",
+        }
+    }
+    if (st === "completed" || st === "rejected") {
+        return {
+            ok: false,
+            error: `Job is ${st} on-chain; claimRefund does not apply.`,
+        }
+    }
+    if (st !== "funded" && st !== "submitted") {
+        return {
+            ok: false,
+            error:
+                st === ""
+                    ? "Refresh with job_sync_chain first, then try again."
+                    : `claimRefund applies when the job is funded or submitted on-chain after expiry (current: ${st}).`,
+        }
+    }
+
+    if (job.acpExpiresAt) {
+        const expMs = job.acpExpiresAt.getTime()
+        if (Number.isFinite(expMs) && expMs > Date.now()) {
+            return {
+                ok: false,
+                error:
+                    "On-chain expiry time has not passed yet; claimRefund may revert until then.",
+            }
+        }
+    }
+
+    const commerce = commerceAddr()
+    const steps: OnChainStep[] = [
+        {
+            label: "claimRefund (return escrow; job becomes Expired)",
+            to: commerce,
+            data: encodeAcpClaimRefund({ jobId: BigInt(job.acpJobId) }),
         },
     ]
     return {

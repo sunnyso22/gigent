@@ -4,6 +4,7 @@ import { z } from "zod"
 import { generateDeliveryImageAndUpload } from "@/lib/agent-jobs/delivery/image-gen"
 import type { JobDeliveryPayload } from "@/lib/agent-jobs/delivery/payload"
 import {
+    getClaimRefundOnChainBundle,
     getCompleteJobOnChainBundle,
     getRejectJobOnChainBundle,
     getSubmitDeliveryOnChainBundle,
@@ -258,6 +259,42 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 success: false as const,
                 ...ref,
                 error: result.error,
+            }
+        },
+    }),
+
+    job_claim_refund: tool({
+        description:
+            "Client-only (EIP-8183 / ERC-8183): after the on-chain listing has expired, recover escrow and set the job to Expired by calling **claimRefund** from the client wallet. Refreshes chain-mirrored fields first. If the job is already expired on-chain, returns success. Otherwise returns **onChain.steps**—after the wallet confirms, run **job_sync_chain**. The contract may still revert if expiry/refund rules are not met.",
+        inputSchema: z.object({ jobId: agentJobIdSchema }),
+        execute: async ({ jobId }) => {
+            await syncAgentJobFromChainByDbId(jobId)
+            const jAligned = await getAgentJobById(jobId)
+            if (
+                jAligned?.acpStatus?.toLowerCase() === "expired" ||
+                jAligned?.status === "expired"
+            ) {
+                const ref = packJobToolRef(jAligned)
+                return {
+                    success: true as const,
+                    ...ref,
+                    message: ref.jobId
+                        ? `Job #${ref.jobId} is already expired on-chain; run job_sync_chain if the app still looks stale.`
+                        : "Job is already expired on-chain; run job_sync_chain if the app still looks stale.",
+                }
+            }
+            const prep = await getClaimRefundOnChainBundle({ userId, jobId })
+            const j = (await getAgentJobById(jobId)) ?? jAligned
+            const ref = packJobToolRef(j)
+            if (!prep.ok) {
+                return { success: false as const, ...ref, error: prep.error }
+            }
+            return {
+                success: false as const,
+                ...ref,
+                error:
+                    "Sign claimRefund in your wallet to return escrow. After confirmation, run job_sync_chain.",
+                onChain: prep.bundle,
             }
         },
     }),

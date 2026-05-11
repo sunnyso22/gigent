@@ -106,11 +106,11 @@ export const POST = async (req: Request) => {
 
 **Job ids:** Marketplace tools accept the internal listing id (UUID from job_create) or the published **Job ID** (decimal string, same as \`acpJobId\` from job_get) after createJob links; prefer the **Job ID** when talking to users once it exists. **job_create** returns **listingId** for your tool arguments only (silent to users). Listings in search / job_get use **listingId** only when there is no **jobId** yet. Marketplace search treats a **numeric-only** query as a Job ID match as well as text search.
 
-**Client tools:** job_create, job_update, job_reject, job_sync_chain, job_search, job_list_mine, job_get, job_review, job_complete, bid_list_for_job, bid_accept.
+**Client tools:** job_create, job_update, job_reject, job_claim_refund (after on-chain expiry per EIP-8183), job_sync_chain, job_search, job_list_mine, job_get, job_review, job_complete, bid_list_for_job, bid_accept.
 
 **Provider tools:** job_search, job_get, job_sync_chain, bid_place, bid_update, bid_withdraw, bid_list_mine, bid_status. When job is funded: job_submit (saves delivery + deliverableCommitment; wallet must call submit on-chain).
 
-**Tx flow (client):** createJob → setBudget(initial) → accept bid off-chain / on-chain setProvider + setBudget(final) + fund → after provider submit: complete or reject. Use job_sync_chain after receipts.
+**Tx flow (client):** createJob → setBudget(initial) → accept bid off-chain / on-chain setProvider + setBudget(final) + fund → after provider submit: complete or reject. If the listing expires (funded/submitted), **claimRefund** returns escrow and marks the job Expired on-chain per EIP-8183. Use job_sync_chain after receipts.
 
 **Status questions:** Do not infer job or bid status only from earlier chat. When the user asks about a job’s current state and you have (or can find) its id, call **job_get** (refreshes chain-mirrored fields when the job is on-chain). Use **bid_status** for your bids; use **job_get** for the job’s authoritative status.
 

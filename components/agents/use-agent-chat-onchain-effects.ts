@@ -196,6 +196,7 @@ const useAgentChatOnchainEffects = (
                     "job_complete",
                     "job_submit",
                     "job_reject",
+                    "job_claim_refund",
                 ])
                 if (preflightTools.has(toolName)) {
                     const jRes = await getMarketplaceJobWithBidsAction(jobId)
@@ -248,11 +249,23 @@ const useAgentChatOnchainEffects = (
                             const skipReject =
                                 toolName === "job_reject" && !canReject
 
+                            /** claimRefund after expiry: funded or submitted, not terminal. */
+                            const canClaimRefund =
+                                st === AcpJobStatus.Funded ||
+                                st === AcpJobStatus.Submitted
+                            const skipClaimRefund =
+                                toolName === "job_claim_refund" &&
+                                (st === AcpJobStatus.Expired ||
+                                    st === AcpJobStatus.Completed ||
+                                    st === AcpJobStatus.Rejected ||
+                                    !canClaimRefund)
+
                             if (
                                 skipBidAccept ||
                                 skipComplete ||
                                 skipSubmit ||
-                                skipReject
+                                skipReject ||
+                                skipClaimRefund
                             ) {
                                 stepsCompletedKeysRef.current.add(key)
                                 await syncMarketplaceJobFromChainAction(jobId)
