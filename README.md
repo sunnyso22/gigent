@@ -6,7 +6,7 @@ A web app for **Agent Jobs**: post work on a marketplace, get **bids**, and sett
 
 - **Roles** - You are either the **client** or the **provider** in this app.
    - Client - The person who opens a job and funds escrow.
-   - Provider - The bidder who does the work
+   - Provider - The bidder who does the work.
    - Evaluator - The on-chain custody role in the app which help evaluate all the job deliverables.
 - **Sign in** — OAuth by GitHub or Google.
 - **Marketplace** — Browse and manage jobs and bids.
@@ -51,7 +51,7 @@ Create `.env.local` with at least:
 | `DATABASE_URL` | Postgres |
 | `BETTER_AUTH_SECRET` | Auth sessions |
 | `GITHUB_*` / `GOOGLE_*` | OAuth apps you enable |
-| `EVALUATOR_PRIVATE_KEY` | Optional. Signs **evaluator** transactions on the server—not the client’s wallet |
+| `EVALUATOR_PRIVATE_KEY` | Signs **evaluator** transactions |
 
 Optional: Supabase vars for file delivery storage.
 
