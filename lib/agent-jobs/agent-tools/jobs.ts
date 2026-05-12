@@ -122,7 +122,7 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): USDT budget as a decimal string (e.g. 10, 0.5, 1.23). **expiresAtUnix**: optional Unix seconds for on-chain expiry—derive by converting the user’s natural-language or local-style expiry to the correct instant (do not require UTC from the user); omit for server default now + 7 days. **description** = the user’s full job scope copied **verbatim** from chat (never summarized). **title** = short off-chain headline only—you derive it from their text (≤120 chars). Saves the listing and returns calldata when the Kite wallet is connected; the UI prompts createJob + setBudget. Output **listingId** is for your next tool calls only (do not read aloud); after publish, the user-facing **Job ID** is in job_get. After success, reply briefly—the wallet UI already showed the txs.",
+            "Create a new Agent Job (client): USDT budget as a decimal string (e.g. 10, 0.5, 1.23). **expiresAtUnix**: optional Unix seconds—system prompt gives **current UTC Unix anchor** each turn; for relative phrases (\"after 2 days\", \"in 12 hours\") add duration to that anchor; absolute dates use UTC-only rules there; never ask timezone; omit for server default now + 7 days. **description** = the user’s full job scope copied **verbatim** from chat (never summarized). **title** = short off-chain headline only—you derive it from their text (≤120 chars). Saves the listing and returns calldata when the Kite wallet is connected; the UI prompts createJob + setBudget. Output **listingId** is for your next tool calls only (do not read aloud); after publish, the user-facing **Job ID** is in job_get. After success, reply briefly—the wallet UI already showed the txs.",
         inputSchema: z.object({
             title: z
                 .string()
@@ -144,7 +144,7 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 .positive()
                 .optional()
                 .describe(
-                    "Optional Unix timestamp (seconds) for on-chain expiredAt—you compute this from the user’s stated expiry (any format/timezone they use); omit when they omit expiry (server defaults to now + 7 days)."
+                    "Optional Unix seconds for on-chain expiredAt—use system prompt’s **Current UTC instant** Unix value + duration for phrases like ‘after 2 days’ / ‘in 12 hours’; UTC rules there for absolute dates; never ask timezone; omit when user omits expiry."
                 ),
         }),
         execute: async (input) => {

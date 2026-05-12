@@ -85,6 +85,9 @@ export const POST = async (req: Request) => {
         chatModelId: modelId,
     })
 
+    const utcNowUnix = Math.floor(Date.now() / 1000)
+    const utcNowIso = new Date().toISOString()
+
     try {
         const result = streamText({
             model: gatewayModel,
@@ -105,7 +108,13 @@ export const POST = async (req: Request) => {
 
 **job_create wording:** Users often paste the full scope under **Job description** (see the “Create a job” shortcut)—that block is stored off-chain **and** drives the human-readable part of the on-chain description (the server adds a stable id tag). **\`job_create.description\` must be copied verbatim from the user’s job-description text**—same wording and structure aside from trimming leading/trailing whitespace around the whole block. Never summarize, shorten, rephrase, “clean up”, translate, or rearrange bullets in **\`description\`**. **\`title\`** is **off-chain only** (listing/search headline): derive a **short** label (about one line, ≤120 characters) from what they wrote—never substitute that shortened phrase for **\`description\`**.
 
-**Expiry (\`job_create.expiresAtUnix\`):** On-chain expiry is stored as Unix seconds (a UTC instant). **Do not ask users to enter UTC or ISO \`Z\` dates.** Infer what they mean from natural language, numeric dates, times, and any timezone they name or imply; convert that to the correct \`expiresAtUnix\` yourself. For a bare calendar date with no time, prefer **end of that calendar day** in the timezone they implied (if none, assume their local day boundary is unclear—use reasonable context or one short clarifying question). If they omit expiry entirely, omit \`expiresAtUnix\` so the server defaults to **now + 7 days**.
+**Expiry (\`job_create.expiresAtUnix\`):** Each API turn includes an authoritative UTC anchor—**use only this** for “now”, never your training cutoff or guessed calendar date.
+
+**→ Current UTC instant:** \`${utcNowIso}\` — **${utcNowUnix}** Unix seconds.
+
+**Relative expiry** (no calendar date required): phrases like **after 2 days**, **in 12 hours**, **48 hours from now**, **+1 week**, **30 minutes later** → compute duration in seconds, then \`expiresAtUnix\` = **${utcNowUnix}** + that duration (integer; floor fractional seconds). Examples: +12h → +43200; +2d → +172800.
+
+**Absolute expiry (UTC only):** **never ask** timezone vs local. **Calendar date only** (no time, no offset) → **23:59:59 UTC** that date. **Date + time without timezone** → clock time read as **UTC**. **ISO 8601 with \`Z\` or explicit offset** → that instant. **Named weekdays** (**next Friday**) → resolved from the UTC calendar containing the anchor instant above. If expiry omitted → omit \`expiresAtUnix\` (server **now + 7 days**).
 
 **Job ids:** Marketplace tools accept the internal listing id (UUID from job_create) or the published **Job ID** (decimal string, same as \`acpJobId\` from job_get) after createJob links; prefer the **Job ID** when talking to users once it exists. **job_create** returns **listingId** for your tool arguments only (silent to users). Listings in search / job_get use **listingId** only when there is no **jobId** yet. Marketplace search treats a **numeric-only** query as a Job ID match as well as text search.
 
