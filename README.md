@@ -1,118 +1,70 @@
 # Gigent
 
-**Gigent** is a web application where users explore **Agent Jobs** on a marketplace, negotiate through **bids**, and complete work using **Agentic Commerce** (ERC-8183) on **Kite Testnet**—with an **Agents** workspace that pairs multi-model chat (Vercel AI SDK) with **tool calling** against the same domain logic.
+A web app for **Agent Jobs**: post work on a marketplace, get **bids**, and settle payments on **Kite testnet** using escrow. There’s also an **Agents** chat area where you can talk to AI models that help with jobs and bids in the same app.
 
+## What you can do
 
-## Table of contents
+- **Roles** - You are either the **client** or the **provider** in this app.
+   - Client - The person who opens a job and funds escrow.
+   - Provider - The bidder who does the work
+   - Evaluator - The on-chain custody role in the app which help evaluate all the job deliverables.
+- **Sign in** — OAuth by GitHub or Google.
+- **Marketplace** — Browse and manage jobs and bids.
+- **Agents** — Chat with AI; connect a wallet when the app asks so on-chain steps go to your address.
 
-1. [Background](#background)
-2. [Features](#features)
-3. [Usage guideline](#usage-guideline)
-4. [Install & setup](#install--setup)
-5. [License](#license)
+## Using the app
 
+1. Sign in first.
+2. Open **Agents** for chat. You’ll need a **connected wallet to Kite testnet** and a **Vercel AI Gateway API key** in **Settings** so chat and models work.
+3. Open **Marketplace** for listings and job details.
 
-## Background
+### If you are Client
 
-Traditional freelance-style flows mix **off-chain coordination** (listings, delivery artifacts, chat) with **on-chain escrow** so commitments are enforceable where it matters. Gigent connects:
+1. **Open jobs** — Ask agents to create a job (title, description, budget, expiry). The app stores the listing; your wallet signs **publish** steps (create the on-chain job and set the initial budget).
+2. **List bids** — Ask agents to list bids on a job and inspect details.
+3. **Accept a bid** — Accept a bid and assign the job to that provider. That triggers wallet steps (for example token approval and funding the escrow).
+4. **Close out** — After the provider has submitted on-chain, you ask the agent (evaluator) to review the job deliverables. Evaluator will choose either **complete** or **reject** the job.
 
-- **Marketplace** — browse and publish agent jobs backed by Postgres.
-- **Agents** — an AI-assisted surface that invokes `job_*` and `bid_*` tools so models can search listings, drive bids, and prepare wallet steps aligned with the Agentic Commerce contract.
+### If you are Provider
 
-The stack is **Next.js (App Router)**, **Better Auth**, **Drizzle ORM** over **PostgreSQL**, optional **Supabase Storage** for delivery files, and **wagmi/viem** for Kite wallet flows. Chat inference uses the **Vercel AI Gateway** with user-supplied API keys stored encrypted server-side.
+1. **Find jobs** — Ask agents to search jobs and inspect details.
+2. **Place bids** — Place a bid through agents. Update or withdraw while the bid is still pending.
+3. **Check status** — Check bid and job status through agents.
+4. **Deliver** — When your bid is accepted and the job is **funded**, submit delivery through chat (off-chain payload plus commitment). Your wallet signs the on-chain **submit** step when applicable.
 
-For tool-level mapping between AI SDK tools and contract functions, see [`lib/agent-jobs/README.md`](lib/agent-jobs/README.md).
+> If something looks out of date after a wallet transaction, ask the agents to sync the job from chain.
 
+## Local development
 
-## Features
-
-| Area | Notes |
-| --- | --- |
-| **Marketplace** | Search and filter agent jobs (`/marketplace`), job detail pages, status aligned with app + chain sync. |
-| **Agents chat** | Streaming chat with selectable models; server tools for jobs and bids; wallet-connected flows for on-chain steps. |
-| **Authentication** | Better Auth with OAuth providers (e.g. GitHub, Google—see `lib/auth.ts`). |
-| **Agent jobs domain** | CRUD-style operations, bids, delivery payloads, mirroring contract state (`lib/agent-jobs/`). |
-| **On-chain (Kite)** | Agentic Commerce + USDT-style escrow flows on testnet (addresses and encoding under `lib/acp/`). |
-| **AI Gateway keys** | Users can save a Vercel AI Gateway API key in Settings for Agents (encrypted storage). |
-
-
-## Usage guideline
-
-1. **Sign in** via the account menu using your configured OAuth providers.
-2. **Marketplace** — Browse `/marketplace`; open a job to see detail and participant actions appropriate to your role.
-3. **Agents** — Go to `/agents`. You need:
-   - A **connected Kite wallet** (header) so the chat API can associate chain actions with your session.
-   - A valid **Vercel AI Gateway API key** in **Settings** so the server can call models through the gateway.
-4. **Jobs & bids** — Create or update listings from the UI or via Agents tools; accept bids and complete flows that show wallet prompts follow the contract ordering described in [`lib/agent-jobs/README.md`](lib/agent-jobs/README.md).
-5. After on-chain transactions from the Agents UI, use **`job_sync_chain`** (via chat) or marketplace sync controls where exposed so Postgres mirrors **`getJob`** from chain.
-
-
-## Install & setup
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) compatible with Next.js 16 (see `package.json` engines if added later).
-- [Bun](https://bun.sh/) optional but recommended — this repo includes `bun.lock`.
-- PostgreSQL database URL.
-- Optional: Supabase project for Storage (`SUPABASE_*`).
-- OAuth app credentials for Better Auth providers you enable.
-
-### Clone and install
+**Requirements:** Node or [Bun](https://bun.sh/), a PostgreSQL database, and OAuth credentials for whichever sign-in providers you turn on.
 
 ```bash
 git clone <repository-url> gigent
 cd gigent
 bun install
-# or: npm install
 ```
 
-### Environment variables
+Create `.env.local` with at least:
 
-Create `.env.local` (loaded after `.env`). Typical variables:
-
-| Variable | Purpose |
+| Variable | What it’s for |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string for Drizzle. |
-| `BETTER_AUTH_SECRET` | Secret for Better Auth sessions / crypto helpers. |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub OAuth (if enabled). |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth (if enabled). |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase Storage for job deliveries (optional but needed for full delivery flows). |
-| `SUPABASE_STORAGE_BUCKET` | Bucket name override if used. |
-| `AI_GATEWAY_USER_KEY_SECRET` | Encrypts stored user AI Gateway keys (see `lib/ai-gateway/crypto.ts`). |
-| `KITE_RPC_URL` | Optional RPC override (defaults to Kite testnet RPC in code). |
-| `EVALUATOR_PRIVATE_KEY` | Optional `0x` + 64 hex. When set, `createJob` uses this custody wallet as the on-chain **evaluator**, and **job_review** can broadcast **complete** / **reject** (requires native gas on that address on Kite). Omit for legacy mode (connected client wallet is evaluator). |
+| `DATABASE_URL` | Postgres |
+| `BETTER_AUTH_SECRET` | Auth sessions |
+| `GITHUB_*` / `GOOGLE_*` | OAuth apps you enable |
+| `EVALUATOR_PRIVATE_KEY` | Optional. Signs **evaluator** transactions on the server—not the client’s wallet |
 
-Exact OAuth env names match [`lib/auth.ts`](lib/auth.ts).
+Optional: Supabase vars for file delivery storage.
 
-**Evaluator wallet:** Fund the custody address with **Kite testnet native** currency so evaluator **`complete`** / **`reject`** transactions succeed. Escrow uses USDT on the commerce contract; gas is separate.
-
-### Database
-
-Schema lives under [`lib/db/`](lib/db/). After `DATABASE_URL` is set:
+Apply the database schema:
 
 ```bash
 bunx drizzle-kit push
-# or: npx drizzle-kit push
 ```
 
-### Run locally
+Run the app:
 
 ```bash
 bun run dev
-# or: npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
-
-### Other scripts
-
-| Script | Command |
-| --- | --- |
-| Lint | `bun run lint` |
-| Production build | `bun run build` |
-| Format | `bun run format` |
-
-
-## License
-
-No `LICENSE` file is included in this repository. **`package.json` marks the package as private.** Before redistributing or reusing code, clarify terms with the project owners or add an explicit license file.
+Then open [http://localhost:3000](http://localhost:3000). Other commands: `bun run lint`, `bun run build`, `bun run format`.
