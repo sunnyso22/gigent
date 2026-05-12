@@ -11,17 +11,17 @@
 
 | Tool             | What it’s for                                                                                                                                                                                            | Contract / token                     | Function(s)                                                               |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
-| `job_create`     | New listing: title, description, model, USDT budget, optional on-chain expiry. Persists in DB, then exposes calldata when a wallet is available.                                                         | Agentic Commerce                     | `**createJob`**, then `**setBudget**` (UI links `acp_job_id`, then sync). |
+| `job_create`     | New listing: title, description, USDT budget, optional on-chain expiry. Persists in DB, then exposes calldata. **`evaluator`** in `createJob` is the **Gigent custody address** when `EVALUATOR_PRIVATE_KEY` is set; otherwise the connected wallet. | Agentic Commerce                     | `**createJob`**, then `**setBudget**` (UI links `acp_job_id`, then sync). |
 | `job_update`     | After the job exists on-chain, mirrored fields are immutable here—response explains `**job_reject**` / new `**job_create**` instead.                                                                     | —                                    | No contract call.                                                         |
-| `job_reject`     | Client rejects or aligns terminal state: may resolve in DB only, or returns `**reject**` calldata + wallet flow, then sync.                                                                              | Agentic Commerce                     | `**reject**` when on-chain reject is still required.                      |
+| `job_reject`     | Client rejects or aligns terminal state: DB-only when possible; else wallet `**reject**` when allowed. Custody-evaluator jobs in **Funded/Submitted** use `**job_review**` instead of wallet reject.     | Agentic Commerce                     | `**reject**` when on-chain reject is still required.                      |
 | `job_claim_refund` | Client-only: after on-chain expiry (EIP-8183), returns `**claimRefund**` steps so escrow returns and status becomes Expired; sync after.                                                               | Agentic Commerce                     | `**claimRefund**`.                                                       |
 | `job_sync_chain` | Refresh mirrored `acp_*` fields from chain.                                                                                                                                                              | Agentic Commerce                     | `**getJob**` (read).                                                      |
 | `job_submit`     | Provider uploads delivery; stores payload + `deliverableCommitment`; returns `**submit**` steps.                                                                                                         | Agentic Commerce                     | `**submit**`.                                                             |
-| `job_complete`   | Client aligns app with chain; if not yet completed on-chain, returns `**complete**` steps, then sync.                                                                                                    | Agentic Commerce                     | `**complete**`.                                                           |
+| `job_review`     | Client-only: LLM judges delivery vs scope (AI Gateway). With custody evaluator (`EVALUATOR_PRIVATE_KEY`), broadcasts **`complete`** or **`reject`** after chain **Submitted**—only Agents path for **`complete`**. Legacy evaluator: recommendation only (no agent-driven **`complete`** tool). | Agentic Commerce                     | **`complete`** / `**reject**` from custody wallet when configured.       |
 | `bid_accept`     | Client accepts a bid after `**acp_job_id**` exists; DB → funded; returns wallet bundle.                                                                                                                  | USDT (ERC-20), then Agentic Commerce | `**approve**`, then `**setProvider**`, `**setBudget**`, `**fund**`.       |
 
 
-**Read-side sync (no user-signed tx by default):** `**job_get`** and `**job_review`** call the same chain sync helper as `job_sync_chain` (conceptually `**getJob`**) before returning role-scoped job + delivery data.
+**Read-side sync:** `**job_get`** runs chain refresh (`**getJob**`) before returning role-scoped data. **`job_review`** syncs first, evaluates delivery via AI Gateway, and may broadcast txs when custody evaluator mode is enabled.
 
 ---
 
@@ -33,7 +33,6 @@
 | `job_search`       | Filters: keywords, status, model, client name, USDT budget range.              |
 | `job_list_mine`    | Client’s posted jobs.                                                          |
 | `job_get`          | One job by id; role-scoped fields; delivery visibility follows app rules.      |
-| `job_review`       | Same read path as `job_get` with review-oriented copy in the tool description. |
 | `bid_place`        | Place/update USDT bid (requires connected Kite wallet for payout address).     |
 | `bid_update`       | Change pending bid amount / payout address.                                    |
 | `bid_withdraw`     | Withdraw pending bid.                                                          |

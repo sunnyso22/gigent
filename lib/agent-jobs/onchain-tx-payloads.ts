@@ -6,7 +6,6 @@ import {
 import { encodeErc20Approve } from "@/lib/acp/erc20-encode"
 import {
     encodeAcpClaimRefund,
-    encodeAcpComplete,
     encodeAcpFund,
     encodeAcpReject,
     encodeAcpSetBudget,
@@ -16,6 +15,7 @@ import {
 import { getAddress, type Address, type Hex } from "viem"
 
 import { getAgentJobById } from "./service"
+import { jobUsesPlatformEvaluator } from "./evaluator-config"
 
 export type OnChainStep = {
     label: string
@@ -156,39 +156,6 @@ export const getSubmitDeliveryOnChainBundle = async (input: {
     }
 }
 
-/** Client calls complete() after reviewing. */
-export const getCompleteJobOnChainBundle = async (input: {
-    userId: string
-    jobId: string
-}): Promise<PrepOk | PrepErr> => {
-    const job = await getAgentJobById(input.jobId)
-    if (!job) {
-        return { ok: false, error: "Job not found" }
-    }
-    if (job.clientUserId !== input.userId) {
-        return { ok: false, error: "Only the client can complete on-chain" }
-    }
-    if (!job.acpJobId) {
-        return { ok: false, error: "Job has no Job ID" }
-    }
-    const commerce = commerceAddr()
-    const steps: OnChainStep[] = [
-        {
-            label: "complete",
-            to: commerce,
-            data: encodeAcpComplete({ jobId: BigInt(job.acpJobId) }),
-        },
-    ]
-    return {
-        ok: true,
-        bundle: {
-            chainId: KITE_TESTNET_CHAIN_ID,
-            commerceAddress: commerce,
-            steps,
-        },
-    }
-}
-
 /** Client calls reject() to terminate on-chain job. */
 export const getRejectJobOnChainBundle = async (input: {
     userId: string
@@ -207,6 +174,19 @@ export const getRejectJobOnChainBundle = async (input: {
             error: "No Job ID to reject (use DB-only reject when the listing is still open)",
         }
     }
+
+    const st = job.acpStatus?.toLowerCase() ?? ""
+    if (
+        jobUsesPlatformEvaluator(job) &&
+        (st === "funded" || st === "submitted")
+    ) {
+        return {
+            ok: false,
+            error:
+                "This job uses the Gigent platform evaluator—run **job_review** in Agents to reject after funding/submission (custodial wallet), or use claimRefund after expiry.",
+        }
+    }
+
     const commerce = commerceAddr()
     const steps: OnChainStep[] = [
         {

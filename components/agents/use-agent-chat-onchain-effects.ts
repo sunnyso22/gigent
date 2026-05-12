@@ -193,7 +193,6 @@ const useAgentChatOnchainEffects = (
 
                 const preflightTools = new Set([
                     "bid_accept",
-                    "job_complete",
                     "job_submit",
                     "job_reject",
                     "job_claim_refund",
@@ -223,11 +222,6 @@ const useAgentChatOnchainEffects = (
                             const skipBidAccept =
                                 toolName === "bid_accept" &&
                                 st >= AcpJobStatus.Funded
-
-                            /** Only evaluator complete() while Submitted. */
-                            const skipComplete =
-                                toolName === "job_complete" &&
-                                st !== AcpJobStatus.Submitted
 
                             /**
                              * submit() allowed when Funded or (Open with zero budget); see ERC-8183 reference.
@@ -262,7 +256,6 @@ const useAgentChatOnchainEffects = (
 
                             if (
                                 skipBidAccept ||
-                                skipComplete ||
                                 skipSubmit ||
                                 skipReject ||
                                 skipClaimRefund

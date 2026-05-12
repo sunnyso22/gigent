@@ -80,8 +80,11 @@ Create `.env.local` (loaded after `.env`). Typical variables:
 | `SUPABASE_STORAGE_BUCKET` | Bucket name override if used. |
 | `AI_GATEWAY_USER_KEY_SECRET` | Encrypts stored user AI Gateway keys (see `lib/ai-gateway/crypto.ts`). |
 | `KITE_RPC_URL` | Optional RPC override (defaults to Kite testnet RPC in code). |
+| `EVALUATOR_PRIVATE_KEY` | Optional `0x` + 64 hex. When set, `createJob` uses this custody wallet as the on-chain **evaluator**, and **job_review** can broadcast **complete** / **reject** (requires native gas on that address on Kite). Omit for legacy mode (connected client wallet is evaluator). |
 
 Exact OAuth env names match [`lib/auth.ts`](lib/auth.ts).
+
+**Evaluator wallet:** Fund the custody address with **Kite testnet native** currency so evaluator **`complete`** / **`reject`** transactions succeed. Escrow uses USDT on the commerce contract; gas is separate.
 
 ### Database
 

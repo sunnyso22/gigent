@@ -3,14 +3,19 @@ import { z } from "zod"
 
 import { generateDeliveryImageAndUpload } from "@/lib/agent-jobs/delivery/image-gen"
 import type { JobDeliveryPayload } from "@/lib/agent-jobs/delivery/payload"
+import { getConfiguredEvaluatorAddress } from "@/lib/agent-jobs/evaluator-config"
+import { runAgentJobReview } from "@/lib/agent-jobs/job-review"
+import {
+    DEFAULT_CHAT_MODEL_ID,
+    isChatModelId,
+} from "@/lib/agents/models"
+import { getDecryptedUserAiGatewayApiKey } from "@/lib/ai-gateway"
 import {
     getClaimRefundOnChainBundle,
-    getCompleteJobOnChainBundle,
     getRejectJobOnChainBundle,
     getSubmitDeliveryOnChainBundle,
 } from "@/lib/agent-jobs/onchain-tx-payloads"
 import {
-    completeJobAsClient,
     createAgentJob,
     getAgentJobById,
     getCreateJobOnChainPayload,
@@ -117,7 +122,7 @@ const normalizeAspectRatio = (
 export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
     job_create: tool({
         description:
-            "Create a new Agent Job (client): USDT budget as a decimal string (e.g. 10, 0.5, 1.23), optional on-chain expiresAt as Unix seconds (default listing expiry is now + 7 days when omitted). **description** = the user’s full job scope copied **verbatim** from chat (never summarized). **title** = short off-chain headline only—you derive it from their text (≤120 chars). Saves the listing and returns calldata when the Kite wallet is connected; the UI prompts createJob + setBudget. Output **listingId** is for your next tool calls only (do not read aloud); after publish, the user-facing **Job ID** is in job_get. After success, reply briefly—the wallet UI already showed the txs.",
+            "Create a new Agent Job (client): USDT budget as a decimal string (e.g. 10, 0.5, 1.23). **expiresAtUnix**: optional Unix seconds for on-chain expiry—derive by converting the user’s natural-language or local-style expiry to the correct instant (do not require UTC from the user); omit for server default now + 7 days. **description** = the user’s full job scope copied **verbatim** from chat (never summarized). **title** = short off-chain headline only—you derive it from their text (≤120 chars). Saves the listing and returns calldata when the Kite wallet is connected; the UI prompts createJob + setBudget. Output **listingId** is for your next tool calls only (do not read aloud); after publish, the user-facing **Job ID** is in job_get. After success, reply briefly—the wallet UI already showed the txs.",
         inputSchema: z.object({
             title: z
                 .string()
@@ -139,11 +144,12 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 .positive()
                 .optional()
                 .describe(
-                    "Optional Unix timestamp (seconds) for on-chain expiredAt; server defaults to now + 7 days when omitted."
+                    "Optional Unix timestamp (seconds) for on-chain expiredAt—you compute this from the user’s stated expiry (any format/timezone they use); omit when they omit expiry (server defaults to now + 7 days)."
                 ),
         }),
         execute: async (input) => {
             const { id } = await createAgentJob({ userId, ...input })
+            const usesPlatformEvaluator = getConfiguredEvaluatorAddress() != null
             const prep = await getCreateJobOnChainPayload({
                 userId,
                 jobId: id,
@@ -160,8 +166,9 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                         createJobData: prep.createJobData,
                         initialBudgetAmount: prep.initialBudgetAmount,
                     },
-                    message:
-                        "Listing saved. Run createJob + setBudget in the wallet; after confirmation the **Job ID** appears in job_get or on the marketplace—share that with the user, not the listing id.",
+                    message: usesPlatformEvaluator
+                        ? "Listing saved. **Evaluator:** Gigent custody wallet—after on-chain **Submitted**, the client runs **job_review** to complete or reject. Your wallet still runs createJob + setBudget here; after confirmation the **Job ID** appears in job_get."
+                        : "Listing saved. Run createJob + setBudget in the wallet; after confirmation the **Job ID** appears in job_get or on the marketplace—share that with the user, not the listing id.",
                 }
             }
             return {
@@ -434,27 +441,53 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
 
     job_review: tool({
         description:
-            "Read job details and delivery (same visibility rules as job_get, including chain refresh when a Job ID exists). App status submitted means delivery was already saved off-chain—do not say the provider still needs to submit.",
+            "Client-only: evaluate submitted delivery against the job scope using the AI Gateway model (same key as Agents chat). Requires app status **submitted**, on-chain status **Submitted**, and visible delivery. With **EVALUATOR_PRIVATE_KEY** and the Gigent custody evaluator on-chain, broadcasts **complete** or **reject** from the server wallet and syncs—this is the only Agents path to finalize completion (no client wallet **complete** tool). Legacy listings (client wallet as evaluator) get an LLM recommendation only; use **job_reject** from the wallet when needed, or complete outside Agents and **job_sync_chain**.",
         inputSchema: z.object({ jobId: agentJobIdSchema }),
         execute: async ({ jobId }) => {
-            await syncAgentJobFromChainByDbId(jobId)
-            const result = await getJobForViewer({
-                viewerUserId: userId,
+            const gatewayApiKey = await getDecryptedUserAiGatewayApiKey(userId)
+            if (!gatewayApiKey) {
+                return {
+                    success: false as const,
+                    error:
+                        "Add your Vercel AI Gateway API key in Settings before running job_review.",
+                }
+            }
+            const modelId =
+                ctx.chatModelId != null && isChatModelId(ctx.chatModelId)
+                    ? ctx.chatModelId
+                    : DEFAULT_CHAT_MODEL_ID
+
+            const result = await runAgentJobReview({
+                userId,
                 jobId,
+                gatewayApiKey,
+                modelId,
             })
             if (!result.ok) {
                 return { success: false as const, error: result.error }
             }
+
+            const j = await getAgentJobById(jobId)
+            const ref = packJobToolRef(j)
+
             return {
                 success: true as const,
-                job: serializeJobForTool(result.job),
+                ...ref,
+                platformEvaluator: result.platformEvaluator,
+                decision: result.decision,
+                rationale: result.rationale,
+                ...(result.txHash != null ? { txHash: result.txHash } : {}),
+                ...(result.syncedJobStatus != null
+                    ? { syncedJobStatus: result.syncedJobStatus }
+                    : {}),
+                message: result.message,
             }
         },
     }),
 
     job_submit: tool({
         description:
-            "As the assigned provider: upload final delivery (text / image / both). Saves delivery and deliverableCommitment in the app and returns onChain.steps for contract submit(); then job_sync_chain. After submit txs in the UI, reply briefly—user already signed in the wallet.",
+            "As the assigned provider for a funded job: upload final delivery (text / image / both). **Call this when the user says they want to finish or submit** (e.g. “Finish the work”, “Finish the job”, “Submit the job”, or similar). **Do not ask the user for deliverable text, attachments, or extra scope**—fetch **job_get** first and derive all delivery content **only** from the listing’s job description (and on-chain description mirror); you synthesize `body` / image `prompt` yourself. Saves delivery and deliverableCommitment in the app and returns onChain.steps for contract submit(); then job_sync_chain. After submit txs in the UI, reply briefly—user already signed in the wallet.",
         inputSchema: jobSubmitInputSchema,
         execute: async (input) => {
             let payload: JobDeliveryPayload
@@ -540,43 +573,6 @@ export const createJobsTools = (userId: string, ctx: AgentJobToolsContext) => ({
                 message: ref.jobId
                     ? `Delivery saved for job #${ref.jobId}; job_sync_chain after chain confirms.`
                     : "Delivery saved; job_sync_chain after chain confirms.",
-            }
-        },
-    }),
-
-    job_complete: tool({
-        description:
-            "As the client: align app with chain after delivery. If the chain is not completed yet, the tool returns onChain.steps so the user can send complete() from their wallet, then sync. After the wallet tx + sync, call this tool again to finalize DB. After wallet steps, reply briefly.",
-        inputSchema: z.object({ jobId: agentJobIdSchema }),
-        execute: async ({ jobId }) => {
-            const result = await completeJobAsClient({
-                userId,
-                jobId,
-            })
-            if (result.ok) {
-                const j = await getAgentJobById(jobId)
-                const ref = packJobToolRef(j)
-                return {
-                    success: true as const,
-                    ...ref,
-                    message: "Job completed (chain + app aligned).",
-                }
-            }
-            const prep = await getCompleteJobOnChainBundle({ userId, jobId })
-            const j = await getAgentJobById(jobId)
-            const ref = packJobToolRef(j)
-            if (prep.ok) {
-                return {
-                    success: false as const,
-                    ...ref,
-                    error: result.error,
-                    onChain: prep.bundle,
-                }
-            }
-            return {
-                success: false as const,
-                ...ref,
-                error: result.error,
             }
         },
     }),

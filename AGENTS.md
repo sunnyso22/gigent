@@ -35,4 +35,4 @@ Deeper tool ↔ contract mapping: `lib/agent-jobs/tools.md` and `lib/agent-jobs/
 
 ## Environment
 
-`.env` / `.env.local`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, OAuth client ids/secrets as enabled, optional `SUPABASE_*` for delivery Storage, AI gateway encryption-related vars as documented in `README.md`.
+`.env` / `.env.local`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, OAuth client ids/secrets as enabled, optional `SUPABASE_*` for delivery Storage, optional `EVALUATOR_PRIVATE_KEY` for custody on-chain evaluator + `job_review` txs (see `README.md`), AI gateway encryption-related vars as documented in `README.md`.

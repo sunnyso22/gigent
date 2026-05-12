@@ -5,7 +5,6 @@ import type { OnChainStepsBundle } from "@/lib/agent-jobs/onchain-tx-payloads"
 const STEP_TOOLS = [
     "bid_accept",
     "job_submit",
-    "job_complete",
     "job_reject",
     "job_claim_refund",
 ] as const

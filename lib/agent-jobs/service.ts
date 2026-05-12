@@ -34,6 +34,10 @@ import {
     parseJobDeliveryPayload,
     parseJobDeliveryPayloadFromDb,
 } from "./delivery/payload"
+import {
+    getConfiguredEvaluatorAddress,
+    jobUsesPlatformEvaluator,
+} from "./evaluator-config"
 import { shouldExposeDeliveryFieldsToViewer } from "./delivery/visibility"
 import type { AgentJobStatus } from "./job-status"
 import {
@@ -144,7 +148,7 @@ export const createAgentJob = async (input: {
     description: string
     /** USDT amount as a string (e.g. "50", "0.5", "1.23"); stored as base units in `acp_budget`. */
     budgetAmount: string
-    /** Unix seconds for on-chain `expiredAt`; default now + 7 days when omitted. */
+    /** Unix seconds for on-chain `expiredAt` (UTC instant); default now + 7 days when omitted. */
     expiresAtUnix?: number
 }) => {
     parsePositiveAmount(input.budgetAmount)
@@ -187,11 +191,11 @@ export type GetCreateJobOnChainPayloadResult =
       }
     | { ok: false; error: string }
 
-/** Calldata for `createJob` on Kite (evaluator = client wallet; provider/hook = zero). */
+/** Calldata for `createJob` on Kite (`evaluator` = platform custody wallet when configured, else connected wallet; provider/hook = zero). */
 export const getCreateJobOnChainPayload = async (input: {
     userId: string
     jobId: string
-    /** Checksummed 0x address from the connected browser wallet. */
+    /** Checksummed 0x address from the connected browser wallet (legacy evaluator when no server key). */
     evaluatorAddress: string | undefined
 }): Promise<GetCreateJobOnChainPayloadResult> => {
     const dbJobId = await resolveAgentJobDbId(input.jobId)
@@ -231,19 +235,25 @@ export const getCreateJobOnChainPayload = async (input: {
         return { ok: false, error: "Job is missing expiry timestamp" }
     }
 
-    const rawEval = input.evaluatorAddress?.trim()
-    if (!rawEval) {
-        return {
-            ok: false,
-            error:
-                "Connect your Kite Testnet wallet in the header or Settings so createJob can use your address as evaluator.",
-        }
-    }
+    const configuredEval = getConfiguredEvaluatorAddress()
+
     let evaluator: Address
-    try {
-        evaluator = getAddress(rawEval as Address)
-    } catch {
-        return { ok: false, error: "Invalid evaluator wallet address" }
+    if (configuredEval) {
+        evaluator = configuredEval
+    } else {
+        const rawEval = input.evaluatorAddress?.trim()
+        if (!rawEval) {
+            return {
+                ok: false,
+                error:
+                    "Connect your Kite Testnet wallet in the header or Settings—without EVALUATOR_PRIVATE_KEY the publish flow uses your wallet as the on-chain evaluator.",
+            }
+        }
+        try {
+            evaluator = getAddress(rawEval as Address)
+        } catch {
+            return { ok: false, error: "Invalid evaluator wallet address" }
+        }
     }
 
     const budget = job.acpBudget?.trim() ?? "0"
@@ -1007,10 +1017,12 @@ export const confirmJobCompletion = async (input: {
         }
     }
     if (job.acpStatus?.toLowerCase() !== "completed") {
+        const hint = jobUsesPlatformEvaluator(job)
+            ? "Run **job_review** in Agents (platform evaluator) to approve delivery on-chain, then **job_sync_chain** to align the app."
+            : "Complete on Agentic Commerce outside Agents if your wallet is the evaluator, then **job_sync_chain** or try again."
         return {
             ok: false as const,
-            error:
-                "Call complete on the Agentic Commerce contract from your Kite wallet after reviewing, then use job_sync_chain or try again.",
+            error: hint,
         }
     }
 
@@ -1066,12 +1078,27 @@ export const rejectAgentJobAsClient = async (input: {
     await syncAgentJobFromChainByDbId(dbJobId)
 
     const [again] = await db
-        .select({ acpStatus: jobTable.acpStatus })
+        .select({
+            acpStatus: jobTable.acpStatus,
+            acpEvaluatorAddress: jobTable.acpEvaluatorAddress,
+        })
         .from(jobTable)
         .where(eq(jobTable.id, dbJobId))
         .limit(1)
 
     const st = again?.acpStatus?.toLowerCase() ?? ""
+    if (
+        jobUsesPlatformEvaluator({
+            acpEvaluatorAddress: again?.acpEvaluatorAddress ?? null,
+        }) &&
+        (st === "funded" || st === "submitted")
+    ) {
+        return {
+            ok: false as const,
+            error:
+                "This job uses the Gigent platform evaluator—use **job_review** in Agents to reject after funding/submission, or wait for expiry and **job_claim_refund** when applicable.",
+        }
+    }
     if (st === "rejected" || st === "expired") {
         await db
             .update(jobTable)
@@ -1196,8 +1223,6 @@ export const getBidStatusForUser = async (input: {
 
     return listMyBids(input.userId, 20)
 }
-
-export const completeJobAsClient = confirmJobCompletion
 
 export const updateBidAmount = async (input: {
     userId: string
