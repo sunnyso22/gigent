@@ -1,5 +1,11 @@
-import { createWalletClient, http } from "viem"
-import type { Address, Hex } from "viem"
+import {
+    createWalletClient,
+    http,
+    keccak256,
+    stringToBytes,
+    type Address,
+    type Hex,
+} from "viem"
 
 import { agenticCommerceAbi } from "@/lib/acp/abi"
 import {
@@ -13,8 +19,11 @@ import { kiteChain } from "@/lib/acp/public-client"
 import { getEvaluatorAccount } from "./evaluator-config"
 
 export type EvaluatorBroadcastResult =
-    | { ok: true; txHash: Hex; action: "complete" | "reject" }
+    | { ok: true; txHash: Hex; action: "complete" | "reject"; reason: Hex }
     | { ok: false; error: string }
+
+const rationaleToReasonBytes32 = (rationale: string): Hex =>
+    keccak256(stringToBytes(rationale))
 
 const assertEvaluatorMatchesChain = (
     chainEvaluator: Address,
@@ -33,6 +42,7 @@ const assertEvaluatorMatchesChain = (
 /** Evaluator-only: `complete` while chain status is Submitted. */
 export const evaluatorBroadcastComplete = async (input: {
     acpJobId: bigint
+    rationaleText: string
 }): Promise<EvaluatorBroadcastResult> => {
     const account = getEvaluatorAccount()
     if (!account) {
@@ -56,6 +66,8 @@ export const evaluatorBroadcastComplete = async (input: {
         }
     }
 
+    const reason = rationaleToReasonBytes32(input.rationaleText)
+
     const walletClient = createWalletClient({
         account,
         chain: kiteChain,
@@ -67,9 +79,9 @@ export const evaluatorBroadcastComplete = async (input: {
             address: AGENTIC_COMMERCE_ADDRESS,
             abi: agenticCommerceAbi,
             functionName: "complete",
-            args: [input.acpJobId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x"],
+            args: [input.acpJobId, reason, "0x"],
         })
-        return { ok: true, txHash: hash, action: "complete" }
+        return { ok: true, txHash: hash, action: "complete", reason }
     } catch (e) {
         const msg = e instanceof Error ? e.message : "complete transaction failed"
         return { ok: false, error: msg }
@@ -79,6 +91,7 @@ export const evaluatorBroadcastComplete = async (input: {
 /** Evaluator-only: `reject` while Funded or Submitted (not Open — client wallet rejects Open). */
 export const evaluatorBroadcastReject = async (input: {
     acpJobId: bigint
+    rationaleText: string
 }): Promise<EvaluatorBroadcastResult> => {
     const account = getEvaluatorAccount()
     if (!account) {
@@ -103,6 +116,8 @@ export const evaluatorBroadcastReject = async (input: {
         }
     }
 
+    const reason = rationaleToReasonBytes32(input.rationaleText)
+
     const walletClient = createWalletClient({
         account,
         chain: kiteChain,
@@ -114,9 +129,9 @@ export const evaluatorBroadcastReject = async (input: {
             address: AGENTIC_COMMERCE_ADDRESS,
             abi: agenticCommerceAbi,
             functionName: "reject",
-            args: [input.acpJobId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x"],
+            args: [input.acpJobId, reason, "0x"],
         })
-        return { ok: true, txHash: hash, action: "reject" }
+        return { ok: true, txHash: hash, action: "reject", reason }
     } catch (e) {
         const msg = e instanceof Error ? e.message : "reject transaction failed"
         return { ok: false, error: msg }

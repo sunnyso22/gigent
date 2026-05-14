@@ -59,6 +59,25 @@ export const trimOptional = (s: string | undefined): string | undefined => {
     return t ? t : undefined
 }
 
+export const setJobEvaluationReason = async (
+    jobId: string,
+    input: { evaluationReason: string }
+) => {
+    const dbJobId = await resolveAgentJobDbId(jobId)
+    if (!dbJobId) {
+        return { ok: false as const, error: "Job not found" as const }
+    }
+    const now = new Date()
+    await db
+        .update(jobTable)
+        .set({
+            evaluationReason: input.evaluationReason,
+            updatedAt: now,
+        })
+        .where(eq(jobTable.id, dbJobId))
+    return { ok: true as const }
+}
+
 export type KeywordMatchMode = "any" | "all"
 
 /** Strips filler so full user prompts still match job text. */
@@ -576,6 +595,8 @@ export const getAgentJobById = async (jobId: string) => {
             acpStatus: jobTable.acpStatus,
             acpHookAddress: jobTable.acpHookAddress,
             deliverableCommitment: jobTable.deliverableCommitment,
+            evaluationReason: jobTable.evaluationReason,
+            acpEvaluationReason: jobTable.acpEvaluationReason,
             lastChainSyncAt: jobTable.lastChainSyncAt,
             createdAt: jobTable.createdAt,
         })

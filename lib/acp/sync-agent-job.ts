@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+import { zeroHash } from "viem"
 
 import { job as jobTable } from "@/lib/db/schema"
 import { db } from "@/lib/db"
@@ -46,6 +47,10 @@ export const syncAgentJobFromChainByDbId = async (jobId: string) => {
     const statusLower = j.acpStatusLabel.toLowerCase()
     const now = new Date()
 
+    const terminalReasonLower =
+        statusLower === "completed" || statusLower === "rejected"
+            ? j.reason.toLowerCase()
+            : null
     const patch: Partial<typeof jobTable.$inferInsert> = {
         acpClientAddress: addrOrNull(j.client),
         acpProviderAddress: addrOrNull(j.provider),
@@ -58,6 +63,11 @@ export const syncAgentJobFromChainByDbId = async (jobId: string) => {
         acpContractAddress: AGENTIC_COMMERCE_ADDRESS.toLowerCase(),
         lastChainSyncAt: now,
         updatedAt: now,
+        acpEvaluationReason:
+            terminalReasonLower != null &&
+            terminalReasonLower !== zeroHash.toLowerCase()
+                ? terminalReasonLower
+                : null,
     }
 
     if (statusLower === "completed") {

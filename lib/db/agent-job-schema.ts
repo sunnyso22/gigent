@@ -49,6 +49,10 @@ export const job = pgTable(
         acpHookAddress: text("acp_hook_address"),
         /** bytes32 hex from on-chain `submit`. */
         deliverableCommitment: text("deliverable_commitment"),
+        /** Human-readable evaluation rationale (e.g. LLM output from job_review). */
+        evaluationReason: text("evaluation_reason"),
+        /** Mirror of on-chain evaluator reason bytes32 (`0x` + 64 hex) when sync can read it. */
+        acpEvaluationReason: text("acp_evaluation_reason"),
         lastChainSyncAt: timestamp("last_chain_sync_at", { withTimezone: true }),
         createdAt: timestamp("created_at", { withTimezone: true })
             .defaultNow()

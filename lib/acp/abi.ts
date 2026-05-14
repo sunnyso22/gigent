@@ -104,6 +104,7 @@ export const agenticCommerceAbi = [
                     { name: "expiredAt", type: "uint256" },
                     { name: "status", type: "uint8" },
                     { name: "hook", type: "address" },
+                    { name: "reason", type: "bytes32" },
                 ],
             },
         ],

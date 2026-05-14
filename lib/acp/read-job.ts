@@ -1,4 +1,4 @@
-import type { Address } from "viem"
+import type { Address, Hex } from "viem"
 
 import { agenticCommerceAbi } from "./abi"
 import { AGENTIC_COMMERCE_ADDRESS, acpStatusNumberToLabel } from "./constants"
@@ -15,6 +15,7 @@ export type AcpJobView = {
     status: number
     acpStatusLabel: string
     hook: Address
+    reason: Hex
 }
 
 export const readAcpJob = async (jobId: bigint): Promise<AcpJobView> => {
@@ -35,5 +36,6 @@ export const readAcpJob = async (jobId: bigint): Promise<AcpJobView> => {
         status: j.status,
         acpStatusLabel: acpStatusNumberToLabel(j.status),
         hook: j.hook,
+        reason: j.reason,
     }
 }

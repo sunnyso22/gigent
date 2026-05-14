@@ -12,7 +12,10 @@ import {
     getEvaluatorAccount,
 } from "@/lib/agent-jobs/evaluator-config"
 import { evaluateJobDeliveryWithLlm } from "@/lib/agent-jobs/job-review-llm"
-import { getJobForViewer } from "@/lib/agent-jobs/service"
+import {
+    getJobForViewer,
+    setJobEvaluationReason,
+} from "@/lib/agent-jobs/service"
 import { parseJobDeliveryPayloadFromDb } from "@/lib/agent-jobs/delivery/payload"
 
 export type JobReviewRunResult =
@@ -86,6 +89,13 @@ export const runAgentJobReview = async (input: {
         return { ok: false, error: msg }
     }
 
+    const persisted = await setJobEvaluationReason(input.jobId, {
+        evaluationReason: evaluation.rationale,
+    })
+    if (!persisted.ok) {
+        return { ok: false, error: persisted.error }
+    }
+
     const platform = jobUsesPlatformEvaluator(job)
 
     if (!platform) {
@@ -137,9 +147,11 @@ export const runAgentJobReview = async (input: {
         evaluation.decision === "complete"
             ? await evaluatorBroadcastComplete({
                   acpJobId: BigInt(job.acpJobId),
+                  rationaleText: evaluation.rationale,
               })
             : await evaluatorBroadcastReject({
                   acpJobId: BigInt(job.acpJobId),
+                  rationaleText: evaluation.rationale,
               })
 
     if (!broadcast.ok) {

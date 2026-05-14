@@ -20,6 +20,8 @@ type JobDetail = {
     deliveryPayload: JobDeliveryPayloadFromDb | null
     submittedAt: Date | null
     completedAt: Date | null
+    evaluationReason: string | null
+    acpEvaluationReason: string | null
 }
 
 type MarketplaceJobActionsProps = {
@@ -150,6 +152,27 @@ export const MarketplaceJobActions = ({
                                 No structured delivery payload (legacy or empty).
                             </p>
                         )}
+                        {job.evaluationReason?.trim() ? (
+                            <div className="flex flex-col gap-1 border-t border-border/80 pt-3">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    Evaluation
+                                </p>
+                                <p className="text-xs leading-relaxed whitespace-pre-wrap text-foreground">
+                                    {job.evaluationReason.trim()}
+                                </p>
+                            </div>
+                        ) : null}
+                        {!job.evaluationReason?.trim() &&
+                        job.acpEvaluationReason?.trim() ? (
+                            <div className="flex flex-col gap-1 border-t border-border/80 pt-3">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    On-chain evaluation reason
+                                </p>
+                                <p className="break-all font-mono text-[10px] text-muted-foreground">
+                                    {job.acpEvaluationReason.trim()}
+                                </p>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             ) : null}

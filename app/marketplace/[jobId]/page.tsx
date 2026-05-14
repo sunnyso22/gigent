@@ -119,6 +119,12 @@ const Page = async ({ params }: JobPageProps) => {
                     deliveryPayload,
                     submittedAt: showDeliveryContent ? job.submittedAt : null,
                     completedAt: job.completedAt,
+                    evaluationReason: showDeliveryContent
+                        ? job.evaluationReason ?? null
+                        : null,
+                    acpEvaluationReason: showDeliveryContent
+                        ? job.acpEvaluationReason ?? null
+                        : null,
                 }}
                 sessionUserId={session?.user?.id ?? null}
             />
