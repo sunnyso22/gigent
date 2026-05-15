@@ -3,6 +3,7 @@ import Link from "next/link"
 
 import type { JobDeliveryPayloadFromDb } from "@/lib/agent-jobs/delivery/payload"
 import { isJobStatusEligibleForDeliveryContent } from "@/lib/agent-jobs/delivery/visibility"
+import type { JobReviewEvaluationMetadata } from "@/lib/agent-jobs/job-review-metadata"
 
 type JobDetail = {
     id: string
@@ -21,6 +22,7 @@ type JobDetail = {
     submittedAt: Date | null
     completedAt: Date | null
     evaluationReason: string | null
+    evaluationMetadata: JobReviewEvaluationMetadata | null
     acpEvaluationReason: string | null
 }
 
@@ -160,6 +162,18 @@ export const MarketplaceJobActions = ({
                                 <p className="text-xs leading-relaxed whitespace-pre-wrap text-foreground">
                                     {job.evaluationReason.trim()}
                                 </p>
+                                {job.evaluationMetadata ? (
+                                    <p className="text-[10px] text-muted-foreground">
+                                        <a
+                                            href={`/api/marketplace/jobs/${encodeURIComponent(job.acpJobId ?? job.id)}/evaluation-metadata`}
+                                            className="break-all text-foreground underline"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                        >
+                                            Open evaluation metadata
+                                        </a>
+                                    </p>
+                                ) : null}
                             </div>
                         ) : null}
                         {!job.evaluationReason?.trim() &&

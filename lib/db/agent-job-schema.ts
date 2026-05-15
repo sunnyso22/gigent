@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core"
 
 import { user } from "./auth-schema"
+import type { JobReviewEvaluationMetadata } from "../agent-jobs/job-review-metadata"
 
 export const job = pgTable(
     "job",
@@ -51,6 +52,10 @@ export const job = pgTable(
         deliverableCommitment: text("deliverable_commitment"),
         /** Human-readable evaluation rationale (e.g. LLM output from job_review). */
         evaluationReason: text("evaluation_reason"),
+        /** AI SDK–style metadata for the last `job_review` LLM call (tokens, timing, model). */
+        evaluationMetadata: jsonb("evaluation_metadata").$type<
+            JobReviewEvaluationMetadata | null
+        >(),
         /** Mirror of on-chain evaluator reason bytes32 (`0x` + 64 hex) when sync can read it. */
         acpEvaluationReason: text("acp_evaluation_reason"),
         lastChainSyncAt: timestamp("last_chain_sync_at", { withTimezone: true }),

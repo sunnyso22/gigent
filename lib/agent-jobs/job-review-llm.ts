@@ -3,6 +3,7 @@ import { generateObject } from "ai"
 import { z } from "zod"
 
 import type { ChatModelId } from "@/lib/agents/models"
+import type { JobReviewEvaluationMetadata } from "@/lib/agent-jobs/job-review-metadata"
 
 const reviewSchema = z.object({
     decision: z.enum(["complete", "reject"]),
@@ -18,6 +19,11 @@ export type DeliveryEvaluation = z.infer<typeof reviewSchema>
 
 const MAX_CONTEXT_CHARS = 100_000
 
+export type JobDeliveryLlmReviewResult = {
+    evaluation: DeliveryEvaluation
+    metadata: JobReviewEvaluationMetadata
+}
+
 export const evaluateJobDeliveryWithLlm = async (input: {
     gatewayApiKey: string
     modelId: ChatModelId
@@ -27,7 +33,7 @@ export const evaluateJobDeliveryWithLlm = async (input: {
     listingDescription: string
     onChainDescription: string
     deliveryJson: string
-}): Promise<DeliveryEvaluation> => {
+}): Promise<JobDeliveryLlmReviewResult> => {
     const model = createGatewayProvider({ apiKey: input.gatewayApiKey })(
         input.modelId
     )
@@ -37,7 +43,10 @@ export const evaluateJobDeliveryWithLlm = async (input: {
             ? `${input.deliveryJson.slice(0, MAX_CONTEXT_CHARS)}\n… [truncated]`
             : input.deliveryJson
 
-    const { object } = await generateObject({
+    const startedAt = new Date()
+    const genStart = performance.now()
+
+    const result = await generateObject({
         model,
         schema: reviewSchema,
         providerOptions: {
@@ -68,5 +77,55 @@ Structured delivery payload (JSON):
 ${deliverySlice}`,
     })
 
-    return object
+    const generationDurationMs = Math.round(performance.now() - genStart)
+
+    const metadata: JobReviewEvaluationMetadata = {
+        kind: "job_review_llm",
+        modelId: input.modelId,
+        startedAt: startedAt.toISOString(),
+        generationDurationMs,
+        finishReason: result.finishReason,
+        usage: {
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+            totalTokens: result.usage.totalTokens,
+            inputTokenDetails: {
+                noCacheTokens: result.usage.inputTokenDetails.noCacheTokens,
+                cacheReadTokens: result.usage.inputTokenDetails.cacheReadTokens,
+                cacheWriteTokens: result.usage.inputTokenDetails.cacheWriteTokens,
+            },
+            outputTokenDetails: {
+                textTokens: result.usage.outputTokenDetails.textTokens,
+                reasoningTokens:
+                    result.usage.outputTokenDetails.reasoningTokens,
+            },
+            raw: result.usage.raw as Record<string, unknown> | undefined,
+        },
+        response: {
+            id: result.response.id,
+            modelId: result.response.modelId,
+            timestamp: result.response.timestamp.toISOString(),
+        },
+        ...(result.warnings?.length
+            ? {
+                  warnings: result.warnings.map((w) =>
+                      typeof w === "object" && w !== null
+                          ? { ...(w as Record<string, unknown>) }
+                          : { message: String(w) }
+                  ),
+              }
+            : {}),
+        ...(result.providerMetadata != null
+            ? {
+                  providerMetadata: JSON.parse(
+                      JSON.stringify(result.providerMetadata)
+                  ) as Record<string, unknown>,
+              }
+            : {}),
+        ...(result.reasoning?.trim()
+            ? { reasoning: result.reasoning.trim() }
+            : {}),
+    }
+
+    return { evaluation: result.object, metadata }
 }

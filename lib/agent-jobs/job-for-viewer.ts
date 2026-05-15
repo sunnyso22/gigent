@@ -27,6 +27,7 @@ export const getJobWithBidsForViewer = async (
               deliveryPayload: null,
               submittedAt: null,
               evaluationReason: null,
+              evaluationMetadata: null,
               acpEvaluationReason: null,
           }
 

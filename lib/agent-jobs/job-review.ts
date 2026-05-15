@@ -72,9 +72,9 @@ export const runAgentJobReview = async (input: {
     }
     const deliveryJson = JSON.stringify(parsedDelivery)
 
-    let evaluation
+    let review
     try {
-        evaluation = await evaluateJobDeliveryWithLlm({
+        review = await evaluateJobDeliveryWithLlm({
             gatewayApiKey: input.gatewayApiKey,
             modelId: input.modelId,
             gatewayUserId: input.userId,
@@ -89,8 +89,11 @@ export const runAgentJobReview = async (input: {
         return { ok: false, error: msg }
     }
 
+    const evaluation = review.evaluation
+
     const persisted = await setJobEvaluationReason(input.jobId, {
         evaluationReason: evaluation.rationale,
+        evaluationMetadata: review.metadata,
     })
     if (!persisted.ok) {
         return { ok: false, error: persisted.error }

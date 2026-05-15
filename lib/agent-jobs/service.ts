@@ -39,6 +39,7 @@ import {
     jobUsesPlatformEvaluator,
 } from "./evaluator-config"
 import { shouldExposeDeliveryFieldsToViewer } from "./delivery/visibility"
+import type { JobReviewEvaluationMetadata } from "./job-review-metadata"
 import type { AgentJobStatus } from "./job-status"
 import {
     jobTableLookupWhere,
@@ -61,7 +62,10 @@ export const trimOptional = (s: string | undefined): string | undefined => {
 
 export const setJobEvaluationReason = async (
     jobId: string,
-    input: { evaluationReason: string }
+    input: {
+        evaluationReason: string
+        evaluationMetadata?: JobReviewEvaluationMetadata | null
+    }
 ) => {
     const dbJobId = await resolveAgentJobDbId(jobId)
     if (!dbJobId) {
@@ -72,6 +76,9 @@ export const setJobEvaluationReason = async (
         .update(jobTable)
         .set({
             evaluationReason: input.evaluationReason,
+            ...(input.evaluationMetadata !== undefined
+                ? { evaluationMetadata: input.evaluationMetadata }
+                : {}),
             updatedAt: now,
         })
         .where(eq(jobTable.id, dbJobId))
@@ -596,6 +603,7 @@ export const getAgentJobById = async (jobId: string) => {
             acpHookAddress: jobTable.acpHookAddress,
             deliverableCommitment: jobTable.deliverableCommitment,
             evaluationReason: jobTable.evaluationReason,
+            evaluationMetadata: jobTable.evaluationMetadata,
             acpEvaluationReason: jobTable.acpEvaluationReason,
             lastChainSyncAt: jobTable.lastChainSyncAt,
             createdAt: jobTable.createdAt,
@@ -1162,6 +1170,9 @@ export const getJobForViewer = async (input: {
                 ...job,
                 deliveryPayload: null,
                 submittedAt: null,
+                evaluationReason: null,
+                evaluationMetadata: null,
+                acpEvaluationReason: null,
             },
         }
     }

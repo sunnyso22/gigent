@@ -122,6 +122,9 @@ const Page = async ({ params }: JobPageProps) => {
                     evaluationReason: showDeliveryContent
                         ? job.evaluationReason ?? null
                         : null,
+                    evaluationMetadata: showDeliveryContent
+                        ? job.evaluationMetadata ?? null
+                        : null,
                     acpEvaluationReason: showDeliveryContent
                         ? job.acpEvaluationReason ?? null
                         : null,
